@@ -26,12 +26,7 @@ use sdl2::{
     EventPump,
 };
 
-use crate::components::{
-    asteroid::{AsteroidChainId, CrystalChainId},
-    canon::Canon,
-    miner::Miner,
-    projectile::Projectile,
-};
+use crate::components::{canon::Canon, miner::Miner};
 use crate::input::PlayerInput;
 use crate::systems::{
     autopilot::autopilot_system,
@@ -247,35 +242,17 @@ fn fov_y(w: u32, h: u32) -> f32 {
 }
 
 fn restart_world(world: &mut World, resources: &mut Resources) {
-    // Collect every chain_id in use (asteroids, crystals, projectiles).
-    let mut chain_ids: Vec<u32> = Vec::new();
-    {
-        let mut q = <&AsteroidChainId>::query();
-        for c in q.iter(world) {
-            chain_ids.push(c.0);
-        }
-        let mut q = <&CrystalChainId>::query();
-        for c in q.iter(world) {
-            chain_ids.push(c.0);
-        }
-        let mut q = <&Projectile>::query();
-        for p in q.iter(world) {
-            chain_ids.push(p.chain_id);
-        }
-    }
-
-    // Strip all GPU sprite instances, then all models.
+    // Remove all GPU sprite instances. GPU models are intentionally left intact:
+    // remove_sprite_model does a swap-remove internally, so iterating collected
+    // chain_ids would hit wrong slots after the first removal. New asteroids get
+    // fresh chain_ids from the growing registry; old models become orphaned but
+    // are never referenced again, which is acceptable for a demo.
     {
         let mut gpu = resources.get_mut::<GpuRenderer>().unwrap();
         while gpu.sprite_instance_count() > 0 {
             gpu.remove_sprite_instance(0);
         }
-        for chain_id in chain_ids {
-            gpu.remove_sprite_model(chain_id);
-        }
     }
-
-    resources.get_mut::<SpriteData>().unwrap().registry = SpriteModelRegistry::new();
 
     // Rebuild ECS world with a fresh miner.
     *world = World::default();
