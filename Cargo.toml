@@ -1,0 +1,14 @@
+[package]
+name = "roxlap-game-demo"
+version = "0.1.0"
+authors = ["Aminion <aminion@protonmail.com>"] 
+edition = "2021"
+
+[dependencies]
+legion = "0.4.0"
+roxlap-core = "0.1.1"
+glam = "0.30.5"
+crossbeam = "0.8.4"
+rand = "0.9.2"
+log = "0.4.27"
+env_logger = "0.11.8"
