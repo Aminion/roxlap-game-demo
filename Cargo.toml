@@ -5,12 +5,14 @@ authors = ["Aminion <aminion@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
-roxlap-core = "0.1.1"
-roxlap-formats = "0.1.1"
-glam = "0.30.10"
+roxlap-core = "0.4"
+roxlap-formats = "0.4"
+roxlap-cavegen = "0.4"
+bytemuck = "1.25.0"
+glam = "0.33.0"
 crossbeam = "0.8.4"
-rand = "0.9.4"
-log = "0.4.30"
+rand = "0.10.1"
+log = "0.4.31"
 env_logger = "0.11.10"
 
 [dependencies.sdl2]
