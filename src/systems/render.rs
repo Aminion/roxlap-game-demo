@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use glam::DVec3;
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{
@@ -23,11 +25,10 @@ pub fn render(
     #[resource] render_tex: &mut RenderTexture,
     #[resource] buffers: &mut RenderBuffers,
     #[resource] font_renderer: &FontRenderer,
-    #[resource] perf: &PerformanceInfo,
+    #[resource] perf: &mut PerformanceInfo,
     world: &SubWorld,
 ) {
     // Push per-frame engine state onto the scratch pool (sky colour, side shades).
-    // hello.rs does this every frame before calling opticast.
     let sky = engine.sky_color();
     let sky_i = i32::from_ne_bytes(sky.to_ne_bytes());
     buffers.pool.set_skycast(sky_i, 0);
@@ -54,8 +55,6 @@ pub fn render(
                 down: (-up).to_array(),
             }
         } else {
-            // Fallback: fixed view matching the original hardcoded demo camera
-            // (yaw = 0, pitch = 0.15 rad downward, hovering in front of the cube).
             let cx = f64::from(crate::VSID) * 0.5;
             let cy = f64::from(crate::VSID) * 0.5;
             let cz = f64::from(crate::GROUND_Z) - f64::from(crate::CUBE_EDGE) - 6.0;
@@ -69,9 +68,10 @@ pub fn render(
         }
     };
 
-    // Pre-fill with sky so any ray that hits nothing shows as sky.
     buffers.framebuffer.fill(sky);
 
+    // --- Phase 1: opticast (CPU ray-cast) ---
+    let t_opticast = Instant::now();
     let settings = OpticastSettings::for_oracle_framebuffer(RENDER_WIDTH, RENDER_HEIGHT);
     {
         let grid = GridView::from_single_vxl(world_map);
@@ -83,23 +83,29 @@ pub fn render(
         );
         let _ = opticast(&mut rasterizer, &mut buffers.pool, &camera, &settings, grid);
     }
+    perf.opticast_us_raw = t_opticast.elapsed().as_micros() as u64;
 
+    // --- Phase 2: SDL2 texture upload + blit (CPU→GPU copy) ---
+    let t_upload = Instant::now();
     let row_bytes = (RENDER_WIDTH * 4) as usize;
     render_tex
         .0
         .update(None, bytemuck::cast_slice(&buffers.framebuffer), row_bytes)
         .expect("texture update failed");
-
     canvas_resources.canvas.clear();
     canvas_resources
         .canvas
         .copy(&render_tex.0, None, None)
         .unwrap();
+    perf.upload_us_raw = t_upload.elapsed().as_micros() as u64;
 
     font_renderer.draw_text(
         &mut canvas_resources.canvas,
         &canvas_resources.texture_creator,
-        &format!("FPS {}\nF.TIME {} uS", perf.fps, perf.frame_time_us),
+        &format!(
+            "FPS {}\nFRAME  {} us\nOPTI   {} us\nUPLOAD {} us",
+            perf.fps, perf.frame_time_us, perf.opticast_us, perf.upload_us
+        ),
         4,
         4,
         16.0,
