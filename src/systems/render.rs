@@ -6,13 +6,13 @@ use roxlap_core::{
     opticast, scalar_rasterizer::ScalarRasterizer, Camera, Engine, GridView, OpticastSettings,
 };
 use roxlap_formats::vxl::Vxl;
-use sdl2::pixels::Color;
+use sdl2::pixels::{Color, PixelFormatEnum};
 
 use crate::{
     components::{miner::Miner, newton_body::NewtonBody},
     fonts::FontRenderer,
     systems::performance_info::PerformanceInfo,
-    CanvasResources, RenderBuffers, RenderTexture, RENDER_HEIGHT, RENDER_WIDTH,
+    CanvasResources, RenderBuffers, RenderTexture, WindowSize,
 };
 
 #[system]
@@ -24,13 +24,23 @@ pub fn render(
     #[resource] engine: &Engine,
     #[resource] render_tex: &mut RenderTexture,
     #[resource] buffers: &mut RenderBuffers,
+    #[resource] window_size: &WindowSize,
     #[resource] font_renderer: &FontRenderer,
     #[resource] perf: &mut PerformanceInfo,
     world: &SubWorld,
 ) {
-    // Start measuring actual work time — stopped just before canvas.present() so
-    // the vsync block is excluded.
     let t_frame = Instant::now();
+
+    let (w, h) = (window_size.0, window_size.1);
+
+    // Recreate buffers and texture if the window was resized.
+    if buffers.width != w || buffers.height != h {
+        *buffers = RenderBuffers::new(w, h, crate::VSID);
+        render_tex.0 = canvas_resources
+            .texture_creator
+            .create_texture_streaming(PixelFormatEnum::ARGB8888, w, h)
+            .expect("resize texture failed");
+    }
 
     // Push per-frame engine state onto the scratch pool (sky colour, side shades).
     let sky = engine.sky_color();
@@ -76,31 +86,27 @@ pub fn render(
 
     // --- Phase 1: opticast (CPU ray-cast) ---
     let t_opticast = Instant::now();
-    let settings = OpticastSettings::for_oracle_framebuffer(RENDER_WIDTH, RENDER_HEIGHT);
+    let settings = OpticastSettings::for_oracle_framebuffer(w, h);
     {
         let grid = GridView::from_single_vxl(world_map);
         let mut rasterizer = ScalarRasterizer::new(
             &mut buffers.framebuffer,
             &mut buffers.zbuffer,
-            RENDER_WIDTH as usize,
+            w as usize,
             grid,
         );
         let _ = opticast(&mut rasterizer, &mut buffers.pool, &camera, &settings, grid);
     }
     perf.opticast_us_raw = t_opticast.elapsed().as_micros() as u64;
 
-    // --- Phase 2: SDL2 texture upload + blit (CPU→GPU copy) ---
+    // --- Phase 2: SDL2 texture upload + blit ---
     let t_upload = Instant::now();
-    let row_bytes = (RENDER_WIDTH * 4) as usize;
     render_tex
         .0
-        .update(None, bytemuck::cast_slice(&buffers.framebuffer), row_bytes)
+        .update(None, bytemuck::cast_slice(&buffers.framebuffer), (w * 4) as usize)
         .expect("texture update failed");
     canvas_resources.canvas.clear();
-    canvas_resources
-        .canvas
-        .copy(&render_tex.0, None, None)
-        .unwrap();
+    canvas_resources.canvas.copy(&render_tex.0, None, None).unwrap();
     perf.upload_us_raw = t_upload.elapsed().as_micros() as u64;
 
     perf.frame_time_us_raw = t_frame.elapsed().as_micros() as u64;

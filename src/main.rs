@@ -14,7 +14,7 @@ use roxlap_formats::{
     vxl::Vxl,
 };
 use sdl2::{
-    event::Event,
+    event::{Event, WindowEvent},
     keyboard::Scancode,
     mixer::InitFlag,
     pixels::PixelFormatEnum,
@@ -35,9 +35,8 @@ use crate::systems::{
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
 const INITIAL_WINDOW_HEIGHT: u32 = 720;
 
-/// Render resolution (fixed; independent of the window size).
-pub const RENDER_WIDTH: u32 = 800;
-pub const RENDER_HEIGHT: u32 = 600;
+/// Current window / render resolution, updated by the resize event handler.
+pub struct WindowSize(pub u32, pub u32);
 
 pub struct Dt(pub f64);
 
@@ -54,11 +53,13 @@ pub struct CanvasResources {
 pub struct RenderTexture(pub Texture);
 
 /// Reusable per-frame scratch: opticast pool, pixel buffer, depth buffer.
-/// Allocated once at startup; reset in-place each frame instead of reallocating.
+/// Recreated whenever the window is resized.
 pub struct RenderBuffers {
     pub pool: ScratchPool,
     pub framebuffer: Vec<u32>,
     pub zbuffer: Vec<f32>,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl RenderBuffers {
@@ -68,6 +69,8 @@ impl RenderBuffers {
             pool: ScratchPool::new(width, height, vsid),
             framebuffer: vec![0u32; n],
             zbuffer: vec![0.0f32; n],
+            width,
+            height,
         }
     }
 }
@@ -204,10 +207,15 @@ fn initial_resources(canvas: Canvas<Window>, world: &World) -> Resources {
     let mut resources = Resources::default();
     let texture_creator = canvas.texture_creator();
 
-    // Create the streaming texture once; reused every frame via RenderTexture resource.
+    // Create the streaming texture at the initial window size; the render system
+    // recreates it whenever WindowSize changes.
     let render_texture = RenderTexture(
         texture_creator
-            .create_texture_streaming(PixelFormatEnum::ARGB8888, RENDER_WIDTH, RENDER_HEIGHT)
+            .create_texture_streaming(
+                PixelFormatEnum::ARGB8888,
+                INITIAL_WINDOW_WIDTH,
+                INITIAL_WINDOW_HEIGHT,
+            )
             .expect("failed to create render texture"),
     );
 
@@ -239,7 +247,8 @@ fn initial_resources(canvas: Canvas<Window>, world: &World) -> Resources {
     resources.insert(engine);
     resources.insert(canvas_resources);
     resources.insert(render_texture);
-    resources.insert(RenderBuffers::new(RENDER_WIDTH, RENDER_HEIGHT, VSID));
+    resources.insert(WindowSize(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT));
+    resources.insert(RenderBuffers::new(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, VSID));
     resources.insert(HashSet::<PlayerInput>::new());
     resources.insert(vxl);
     resources.insert(FrameTimer(Instant::now()));
@@ -309,7 +318,6 @@ fn main() {
         }
 
         for event in event_pump.poll_iter() {
-            let mut pinput = resources.get_mut::<HashSet<PlayerInput>>().unwrap();
             match event {
                 Event::Quit { .. }
                 | Event::KeyDown {
@@ -320,19 +328,31 @@ fn main() {
                     scancode: Some(code),
                     ..
                 } => {
-                    let insertion = PlayerInput::from_scancode(code);
-                    if let Some(player_input) = insertion {
-                        pinput.insert(player_input);
+                    if let Some(input) = PlayerInput::from_scancode(code) {
+                        resources
+                            .get_mut::<HashSet<PlayerInput>>()
+                            .unwrap()
+                            .insert(input);
                     }
                 }
                 Event::KeyUp {
                     scancode: Some(code),
                     ..
                 } => {
-                    let deletion = PlayerInput::from_scancode(code);
-                    if let Some(player_input) = deletion {
-                        pinput.remove(&player_input);
+                    if let Some(input) = PlayerInput::from_scancode(code) {
+                        resources
+                            .get_mut::<HashSet<PlayerInput>>()
+                            .unwrap()
+                            .remove(&input);
                     }
+                }
+                Event::Window {
+                    win_event: WindowEvent::Resized(x, y),
+                    ..
+                } => {
+                    let mut ws = resources.get_mut::<WindowSize>().unwrap();
+                    ws.0 = x.max(1) as u32;
+                    ws.1 = y.max(1) as u32;
                 }
                 _ => {}
             }
