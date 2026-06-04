@@ -88,15 +88,13 @@ pub fn render(
         // VXL local center = (VSID/2 - 0.5) on each axis.
         let vxl_half = f64::from(crate::CUBE_VXL_VSID) / 2.0 - 0.5;
         let vxl_center = DVec3::splat(vxl_half);
-
-        // World position of VXL local origin (0,0,0).
-        let vxl_origin = cube_center - vxl_center;
-
         let inv = orientation.inverse();
         let world_pos = DVec3::from(camera.pos);
 
         let cube_cam = Camera {
-            pos: (inv * (world_pos - vxl_origin)).to_array(),
+            // Rotate camera into VXL local space around the cube's world center.
+            // vxl_center is added AFTER rotation so the cube spins around its own center.
+            pos: (inv * (world_pos - cube_center) + vxl_center).to_array(),
             forward: (inv * DVec3::from(camera.forward)).to_array(),
             right: (inv * DVec3::from(camera.right)).to_array(),
             down: (inv * DVec3::from(camera.down)).to_array(),
@@ -118,10 +116,12 @@ pub fn render(
             let _ = opticast(&mut rasterizer, &mut buffers.pool, &cube_cam, &settings, grid);
         }
 
-        // Composite: cube pixels (zbuffer > 0 = geometry hit) over world.
+        // Composite: cube geometry pixels over world.
+        // Sky pixels in cube_fb equal `sky` (both pre-filled and written by rasterizer),
+        // so checking != sky reliably identifies geometry hits.
         let n = (w * h) as usize;
         for i in 0..n {
-            if buffers.cube_zb[i] > 0.0 {
+            if buffers.cube_fb[i] != sky {
                 buffers.framebuffer[i] = buffers.cube_fb[i];
             }
         }
