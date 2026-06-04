@@ -311,7 +311,8 @@ fn main() {
     // We build a rotation matrix whose columns describe where each body axis
     // ends up in voxlap world space, then convert to a quaternion.
     {
-        let pitch: f64 = 0.15;
+        // 46° nose-down so the camera looks at the ground beneath the cube.
+        let pitch: f64 = 0.8;
         let (sp, cp) = (pitch.sin(), pitch.cos());
         // where body +X goes  →  world +Y  (right wing = horizontal right)
         // where body +Y goes  →  world (-sp, 0, cp)  (top = voxlap-sky direction)
@@ -325,10 +326,10 @@ fn main() {
 
         let cx = f64::from(VSID) * 0.5;
         let cy = f64::from(VSID) * 0.5;
-        // Camera starts ~100 voxels above and 90 voxels to the side of
-        // the 64-voxel cube, giving a view from above-left.
-        let cz = f64::from(GROUND_Z) - f64::from(CUBE_VXL_EDGE) - 80.0;
-        let pos = DVec3::new(cx - 90.0, cy, cz);
+        // 100 voxels above the ground, 70 to the left of world centre.
+        // At pitch=0.8 the forward ray hits the ground within the 128-wide world.
+        let cz = f64::from(GROUND_Z) - 100.0;
+        let pos = DVec3::new(cx - 70.0, cy, cz);
         let fwd = orientation * DVec3::NEG_Z;
         let right = orientation * DVec3::X;
         let up = orientation * DVec3::Y;
