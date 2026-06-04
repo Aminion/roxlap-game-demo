@@ -297,7 +297,7 @@ fn main() {
         let right = orientation * DVec3::X;
         let up = orientation * DVec3::Y;
         world.push((
-            Miner { x: 0.0, y: 0.0 },
+            Miner,
             NewtonBody {
                 mass: 1.0,
                 pos,
