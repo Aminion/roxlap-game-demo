@@ -9,10 +9,7 @@ use glam::{DMat3, DQuat, DVec3};
 use legion::{Resources, Schedule, World};
 use roxlap_cavegen::pack_dense_grid_to_vxl;
 use roxlap_core::{rasterizer::ScratchPool, update_lighting, Camera, Engine};
-use roxlap_formats::{
-    edit::{set_rect, MAXZDIM},
-    vxl::Vxl,
-};
+use roxlap_formats::{edit::MAXZDIM, vxl::Vxl};
 use sdl2::{
     event::{Event, WindowEvent},
     keyboard::Scancode,
@@ -23,7 +20,9 @@ use sdl2::{
     EventPump,
 };
 
-use crate::components::{camera::CameraComponent, miner::Miner, newton_body::NewtonBody};
+use crate::components::{
+    camera::CameraComponent, cube_marker::CubeMarker, miner::Miner, newton_body::NewtonBody,
+};
 use crate::fonts::FontRenderer;
 use crate::systems::{
     camera::camera_update_system,
@@ -119,22 +118,19 @@ const VSID: u32 = 32;
 const GROUND_Z: i32 = 200;
 
 /// Edge length of the demo cube, in voxels.
-const CUBE_EDGE: i32 = 10;
+pub const CUBE_EDGE: i32 = 10;
 
 /// Voxlap colour packing: `(brightness << 24) | (R << 16) | (G << 8) | B`.
 /// `0x80` brightness is voxlap's neutral; the `update_lighting` bake
 /// overwrites it with directional shading.
 const GROUND_COL: u32 = 0x80_5a_a0_5a; // mossy green
-const CUBE_COL: u32 = 0x80_c0_60_30; // warm orange
+pub const CUBE_COL: u32 = 0x80_c0_60_30; // warm orange
 
 fn build_world() -> Vxl {
     let vsid_u = VSID as usize;
     let maxz_u = MAXZDIM as usize;
     let cells = vsid_u * vsid_u * maxz_u;
 
-    // Dense grid: 1-byte solid/air mask + matching u32 colour, stored
-    // in `(y, x, z)` order (the layout `pack_dense_grid_to_vxl`
-    // expects). Start every voxel as air, then stamp the ground row.
     let mut mask = vec![0u8; cells];
     let mut colour = vec![0u32; cells];
     let idx = |x: usize, y: usize, z: usize| -> usize { (y * vsid_u + x) * maxz_u + z };
@@ -145,26 +141,12 @@ fn build_world() -> Vxl {
             colour[i] = GROUND_COL;
         }
     }
-    let mut world = pack_dense_grid_to_vxl(&mask, &colour, VSID);
-
-    // Reserve a slab pool large enough for the cube edit. The edit
-    // API allocates new slab records into this pool; without it
-    // `set_rect` panics. 64 KB is overkill for one 10³ cube but fits
-    // comfortably and gives downstream tinkering some headroom.
-    world.reserve_edit_capacity(64 * 1024);
-
-    // Place the cube centred on the world's XY footprint, sitting
-    // directly on the ground (top of cube `CUBE_EDGE` voxels above
-    // GROUND_Z, i.e. lower z because voxlap is z-down).
-    let cx = (VSID as i32) / 2;
-    let cy = (VSID as i32) / 2;
-    let half = CUBE_EDGE / 2;
-    let lo = [cx - half, cy - half, GROUND_Z - CUBE_EDGE];
-    let hi = [cx + half - 1, cy + half - 1, GROUND_Z - 1];
-    set_rect(&mut world, lo, hi, Some(CUBE_COL));
-
-    world
+    pack_dense_grid_to_vxl(&mask, &colour, VSID)
 }
+
+/// Ground-only world used as a base each frame. The rotating cube is
+/// stamped into a per-frame clone inside the render system.
+pub struct BaseWorld(pub Vxl);
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum PlayerInput {
@@ -247,7 +229,8 @@ fn initial_resources(canvas: Canvas<Window>) -> Resources {
         VSID,
     ));
     resources.insert(HashSet::<PlayerInput>::new());
-    resources.insert(vxl);
+    vxl.reserve_edit_capacity(64 * 1024);
+    resources.insert(BaseWorld(vxl));
     resources.insert(FrameTimer(Instant::now()));
     resources.insert(Dt(0.0));
     resources.insert(FontRenderer::new());
@@ -313,6 +296,26 @@ fn main() {
                 right: right.to_array(),
                 down: (-up).to_array(),
             }),
+        ));
+    }
+
+    // Cube entity: spins in place, no translation.
+    // Center matches the original static cube placement.
+    {
+        let cube_center = DVec3::new(
+            f64::from(VSID) / 2.0 - 0.5,
+            f64::from(VSID) / 2.0 - 0.5,
+            f64::from(GROUND_Z) - f64::from(CUBE_EDGE) / 2.0 - 0.5,
+        );
+        world.push((
+            CubeMarker,
+            NewtonBody {
+                mass: 1.0,
+                pos: cube_center,
+                vel: DVec3::ZERO,
+                orientation: DQuat::IDENTITY,
+                angular_vel: DVec3::new(0.3, 0.2, 0.1),
+            },
         ));
     }
 

@@ -1,24 +1,30 @@
 use std::time::Instant;
 
+use glam::DVec3;
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{
     opticast, scalar_rasterizer::ScalarRasterizer, Engine, GridView, OpticastSettings,
 };
-use roxlap_formats::vxl::Vxl;
+use roxlap_formats::edit::set_cube;
 use sdl2::pixels::{Color, PixelFormatEnum};
 
 use crate::{
-    components::camera::CameraComponent, fonts::FontRenderer,
-    systems::performance_info::PerformanceInfo, CanvasResources, RenderBuffers, RenderTexture,
-    WindowSize,
+    components::{
+        camera::CameraComponent, cube_marker::CubeMarker, newton_body::NewtonBody,
+    },
+    fonts::FontRenderer,
+    systems::performance_info::PerformanceInfo,
+    BaseWorld, CanvasResources, RenderBuffers, RenderTexture, WindowSize,
 };
 
 #[allow(clippy::too_many_arguments)]
 #[system]
 #[read_component(CameraComponent)]
+#[read_component(CubeMarker)]
+#[read_component(NewtonBody)]
 pub fn render(
     #[resource] canvas_resources: &mut CanvasResources,
-    #[resource] world_map: &Vxl,
+    #[resource] base_world: &BaseWorld,
     #[resource] engine: &Engine,
     #[resource] render_tex: &mut RenderTexture,
     #[resource] buffers: &mut RenderBuffers,
@@ -60,11 +66,39 @@ pub fn render(
 
     buffers.framebuffer.fill(sky);
 
+    // Clone base world and stamp the rotating cube into it each frame.
+    let cube_body = {
+        let mut q = <(&CubeMarker, &NewtonBody)>::query();
+        q.iter(world).next().map(|(_, b)| (b.orientation, b.pos))
+    };
+    let mut frame_world = base_world.0.clone();
+    if let Some((orientation, center)) = cube_body {
+        for lx in 0..crate::CUBE_EDGE {
+            for ly in 0..crate::CUBE_EDGE {
+                for lz in 0..crate::CUBE_EDGE {
+                    let local = DVec3::new(
+                        lx as f64 - f64::from(crate::CUBE_EDGE) / 2.0 + 0.5,
+                        ly as f64 - f64::from(crate::CUBE_EDGE) / 2.0 + 0.5,
+                        lz as f64 - f64::from(crate::CUBE_EDGE) / 2.0 + 0.5,
+                    );
+                    let wp = center + orientation * local;
+                    set_cube(
+                        &mut frame_world,
+                        wp.x.round() as i32,
+                        wp.y.round() as i32,
+                        wp.z.round() as i32,
+                        Some(crate::CUBE_COL),
+                    );
+                }
+            }
+        }
+    }
+
     // --- Phase 1: opticast (CPU ray-cast) ---
     let t_opticast = Instant::now();
     let settings = OpticastSettings::for_oracle_framebuffer(w, h);
     {
-        let grid = GridView::from_single_vxl(world_map);
+        let grid = GridView::from_single_vxl(&frame_world);
         let mut rasterizer = ScalarRasterizer::new(
             &mut buffers.framebuffer,
             &mut buffers.zbuffer,
