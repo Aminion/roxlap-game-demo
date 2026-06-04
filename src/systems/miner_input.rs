@@ -32,7 +32,8 @@ pub fn miner_input(
         let right = body.orientation * DVec3::X;
         let up = body.orientation * DVec3::Y;
 
-        let damp = ANGULAR_ACCEL * dt.0;
+        let angular_step = ANGULAR_ACCEL * dt.0;
+        let linear_step = LINEAR_ACCEL * dt.0;
 
         // Accumulate net input per axis. Opposite keys cancel to zero,
         // which correctly triggers damping instead of freezing velocity.
@@ -55,24 +56,24 @@ pub fn miner_input(
         }
 
         if net_pitch != 0.0 {
-            body.angular_vel += right * ANGULAR_ACCEL * dt.0 * net_pitch;
+            body.angular_vel += right * angular_step * net_pitch;
         } else {
-            damp_axis(&mut body.angular_vel, right, damp);
+            damp_axis(&mut body.angular_vel, right, angular_step);
         }
         if net_yaw != 0.0 {
-            body.angular_vel += up * ANGULAR_ACCEL * dt.0 * net_yaw;
+            body.angular_vel += up * angular_step * net_yaw;
         } else {
-            damp_axis(&mut body.angular_vel, up, damp);
+            damp_axis(&mut body.angular_vel, up, angular_step);
         }
         if net_roll != 0.0 {
-            body.angular_vel += forward * ANGULAR_ACCEL * dt.0 * net_roll;
+            body.angular_vel += forward * angular_step * net_roll;
         } else {
-            damp_axis(&mut body.angular_vel, forward, damp);
+            damp_axis(&mut body.angular_vel, forward, angular_step);
         }
         if net_thrust != 0.0 {
-            body.vel += forward * LINEAR_ACCEL * dt.0 * net_thrust;
+            body.vel += forward * linear_step * net_thrust;
         } else {
-            damp_axis(&mut body.vel, forward, LINEAR_ACCEL * dt.0);
+            damp_axis(&mut body.vel, forward, linear_step);
         }
     }
 }

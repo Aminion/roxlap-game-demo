@@ -94,6 +94,16 @@ pub fn render(
 
     perf.frame_time_us_raw = t_frame.elapsed().as_micros() as u64;
 
+    render_gui(canvas_resources, font_renderer, perf);
+
+    canvas_resources.canvas.present();
+}
+
+fn render_gui(
+    canvas_resources: &mut CanvasResources,
+    font_renderer: &FontRenderer,
+    perf: &PerformanceInfo,
+) {
     font_renderer.draw_text(
         canvas_resources,
         &format!(
@@ -108,6 +118,4 @@ pub fn render(
         16.0,
         Color::YELLOW,
     );
-
-    canvas_resources.canvas.present();
 }
