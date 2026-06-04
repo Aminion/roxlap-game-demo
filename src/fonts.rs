@@ -2,9 +2,10 @@ use fontdue::{Font, FontSettings};
 use sdl2::{
     pixels::{Color, PixelFormatEnum},
     rect::Rect,
-    render::{BlendMode, Canvas, TextureCreator},
-    video::{Window, WindowContext},
+    render::BlendMode,
 };
+
+use crate::CanvasResources;
 
 pub struct FontRenderer {
     font: Font,
@@ -13,8 +14,8 @@ pub struct FontRenderer {
 impl FontRenderer {
     pub fn new() -> Self {
         let font_data = include_bytes!("../truetype/OpenSans-Regular.ttf") as &[u8];
-        let font = Font::from_bytes(font_data, FontSettings::default())
-            .expect("Failed to load font");
+        let font =
+            Font::from_bytes(font_data, FontSettings::default()).expect("Failed to load font");
         Self { font }
     }
 
@@ -23,8 +24,7 @@ impl FontRenderer {
     /// per-call; this is fine for infrequent UI text like an FPS counter.
     pub fn draw_text(
         &self,
-        canvas: &mut Canvas<Window>,
-        texture_creator: &TextureCreator<WindowContext>,
+        cr: &mut CanvasResources,
         text: &str,
         x: i32,
         y: i32,
@@ -50,7 +50,7 @@ impl FontRenderer {
                 continue;
             }
 
-            let mut texture = match texture_creator.create_texture_streaming(
+            let mut texture = match cr.texture_creator.create_texture_streaming(
                 PixelFormatEnum::RGBA8888,
                 metrics.width as u32,
                 metrics.height as u32,
@@ -75,13 +75,8 @@ impl FontRenderer {
 
             let draw_x = cursor_x + metrics.xmin;
             let draw_y = cursor_y + size as i32 - metrics.height as i32 - metrics.ymin;
-            let dst = Rect::new(
-                draw_x,
-                draw_y,
-                metrics.width as u32,
-                metrics.height as u32,
-            );
-            let _ = canvas.copy(&texture, None, dst);
+            let dst = Rect::new(draw_x, draw_y, metrics.width as u32, metrics.height as u32);
+            let _ = cr.canvas.copy(&texture, None, dst);
 
             cursor_x += metrics.advance_width as i32;
         }

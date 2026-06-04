@@ -127,16 +127,6 @@ const CUBE_EDGE: i32 = 10;
 const GROUND_COL: u32 = 0x80_5a_a0_5a; // mossy green
 const CUBE_COL: u32 = 0x80_c0_60_30; // warm orange
 
-/// Walking speed, in voxels per second.
-const MOVE_SPEED: f64 = 16.0;
-/// Multiplier applied while `LCtrl` is held.
-const FAST_MULT: f64 = 4.0;
-/// Mouse sensitivity, in radians per pixel of cursor delta.
-const MOUSE_SENS: f64 = 0.0025;
-/// Pitch clamp — just shy of ±90° so the camera basis stays
-/// well-conditioned (a straight-up view collapses `right × forward`).
-const PITCH_LIMIT: f64 = 88.0_f64 * std::f64::consts::PI / 180.0;
-
 fn build_world() -> Vxl {
     let vsid_u = VSID as usize;
     let maxz_u = MAXZDIM as usize;
@@ -204,7 +194,7 @@ impl PlayerInput {
     }
 }
 
-fn initial_resources(canvas: Canvas<Window>, world: &World) -> Resources {
+fn initial_resources(canvas: Canvas<Window>) -> Resources {
     let mut resources = Resources::default();
     let texture_creator = canvas.texture_creator();
 
@@ -249,7 +239,11 @@ fn initial_resources(canvas: Canvas<Window>, world: &World) -> Resources {
     resources.insert(canvas_resources);
     resources.insert(render_texture);
     resources.insert(WindowSize(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT));
-    resources.insert(RenderBuffers::new(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT, VSID));
+    resources.insert(RenderBuffers::new(
+        INITIAL_WINDOW_WIDTH,
+        INITIAL_WINDOW_HEIGHT,
+        VSID,
+    ));
     resources.insert(HashSet::<PlayerInput>::new());
     resources.insert(vxl);
     resources.insert(FrameTimer(Instant::now()));
@@ -274,7 +268,7 @@ fn main() {
         .add_thread_local(render_system())
         .build();
     let mut world = World::default();
-    let mut resources = initial_resources(canvas, &mut world);
+    let mut resources = initial_resources(canvas);
 
     // Spawn the player entity.  Initial orientation matches the old hardcoded
     // demo camera: looking toward +X (yaw=0), pitched 0.15 rad nose-down.
@@ -288,13 +282,12 @@ fn main() {
         // where body +X goes  →  world +Y  (right wing = horizontal right)
         // where body +Y goes  →  world (-sp, 0, cp)  (top = voxlap-sky direction)
         // where body +Z goes  →  world (-cp, 0, -sp)  (tail = -forward)
-        let orientation =
-            DQuat::from_mat3(&DMat3::from_cols(
-                DVec3::Y,
-                DVec3::new(-sp, 0.0, cp),
-                DVec3::new(-cp, 0.0, -sp),
-            ))
-            .normalize();
+        let orientation = DQuat::from_mat3(&DMat3::from_cols(
+            DVec3::Y,
+            DVec3::new(-sp, 0.0, cp),
+            DVec3::new(-cp, 0.0, -sp),
+        ))
+        .normalize();
 
         let cx = f64::from(VSID) * 0.5;
         let cy = f64::from(VSID) * 0.5;

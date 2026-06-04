@@ -8,12 +8,12 @@ use roxlap_formats::vxl::Vxl;
 use sdl2::pixels::{Color, PixelFormatEnum};
 
 use crate::{
-    components::camera::CameraComponent,
-    fonts::FontRenderer,
-    systems::performance_info::PerformanceInfo,
-    CanvasResources, RenderBuffers, RenderTexture, WindowSize,
+    components::camera::CameraComponent, fonts::FontRenderer,
+    systems::performance_info::PerformanceInfo, CanvasResources, RenderBuffers, RenderTexture,
+    WindowSize,
 };
 
+#[allow(clippy::too_many_arguments)]
 #[system]
 #[read_component(CameraComponent)]
 pub fn render(
@@ -45,11 +45,17 @@ pub fn render(
     let sky_i = i32::from_ne_bytes(sky.to_ne_bytes());
     buffers.pool.set_skycast(sky_i, 0);
     let s = engine.side_shades();
-    buffers.pool.set_side_shades(s[0], s[1], s[2], s[3], s[4], s[5]);
+    buffers
+        .pool
+        .set_side_shades(s[0], s[1], s[2], s[3], s[4], s[5]);
 
     let camera = {
         let mut query = <&CameraComponent>::query();
-        &query.iter(world).next().expect("no CameraComponent entity").0
+        &query
+            .iter(world)
+            .next()
+            .expect("no CameraComponent entity")
+            .0
     };
 
     buffers.framebuffer.fill(sky);
@@ -65,7 +71,7 @@ pub fn render(
             w as usize,
             grid,
         );
-        let _ = opticast(&mut rasterizer, &mut buffers.pool, &camera, &settings, grid);
+        let _ = opticast(&mut rasterizer, &mut buffers.pool, camera, &settings, grid);
     }
     perf.opticast_us_raw = t_opticast.elapsed().as_micros() as u64;
 
@@ -73,17 +79,23 @@ pub fn render(
     let t_upload = Instant::now();
     render_tex
         .0
-        .update(None, bytemuck::cast_slice(&buffers.framebuffer), (w * 4) as usize)
+        .update(
+            None,
+            bytemuck::cast_slice(&buffers.framebuffer),
+            (w * 4) as usize,
+        )
         .expect("texture update failed");
     canvas_resources.canvas.clear();
-    canvas_resources.canvas.copy(&render_tex.0, None, None).unwrap();
+    canvas_resources
+        .canvas
+        .copy(&render_tex.0, None, None)
+        .unwrap();
     perf.upload_us_raw = t_upload.elapsed().as_micros() as u64;
 
     perf.frame_time_us_raw = t_frame.elapsed().as_micros() as u64;
 
     font_renderer.draw_text(
-        &mut canvas_resources.canvas,
-        &canvas_resources.texture_creator,
+        canvas_resources,
         &format!(
             "FPS {}\nFRAME  {:.2} ms\nOPTI   {:.2} ms\nUPLOAD {:.2} ms",
             perf.fps,
