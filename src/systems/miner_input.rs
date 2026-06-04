@@ -34,62 +34,44 @@ pub fn miner_input(
 
         let damp = ANGULAR_ACCEL * dt.0;
 
-        // Track which world-space axes are actively driven this frame so
-        // deceleration targets the exact same axes as acceleration.
-        let mut pitch_axis: Option<DVec3> = None;
-        let mut yaw_axis: Option<DVec3> = None;
-        let mut roll_axis: Option<DVec3> = None;
-        let mut thrust_driven = false;
+        // Accumulate net input per axis. Opposite keys cancel to zero,
+        // which correctly triggers damping instead of freezing velocity.
+        let mut net_pitch: f64 = 0.0;
+        let mut net_yaw: f64 = 0.0;
+        let mut net_roll: f64 = 0.0;
+        let mut net_thrust: f64 = 0.0;
 
         for input in inputs {
             match input {
-                PlayerInput::PitchCW => {
-                    body.angular_vel += right * ANGULAR_ACCEL * dt.0;
-                    pitch_axis = Some(right);
-                }
-                PlayerInput::PitchCCW => {
-                    body.angular_vel -= right * ANGULAR_ACCEL * dt.0;
-                    pitch_axis = Some(right);
-                }
-                PlayerInput::YawCW => {
-                    body.angular_vel += up * ANGULAR_ACCEL * dt.0;
-                    yaw_axis = Some(up);
-                }
-                PlayerInput::YawCCW => {
-                    body.angular_vel -= up * ANGULAR_ACCEL * dt.0;
-                    yaw_axis = Some(up);
-                }
-                PlayerInput::RollCW => {
-                    body.angular_vel += forward * ANGULAR_ACCEL * dt.0;
-                    roll_axis = Some(forward);
-                }
-                PlayerInput::RollCCW => {
-                    body.angular_vel -= forward * ANGULAR_ACCEL * dt.0;
-                    roll_axis = Some(forward);
-                }
-                PlayerInput::IncTrust => {
-                    body.vel += forward * LINEAR_ACCEL * dt.0;
-                    thrust_driven = true;
-                }
-                PlayerInput::DecTrust => {
-                    body.vel -= forward * LINEAR_ACCEL * dt.0;
-                    thrust_driven = true;
-                }
+                PlayerInput::PitchCW => net_pitch += 1.0,
+                PlayerInput::PitchCCW => net_pitch -= 1.0,
+                PlayerInput::YawCW => net_yaw += 1.0,
+                PlayerInput::YawCCW => net_yaw -= 1.0,
+                PlayerInput::RollCW => net_roll += 1.0,
+                PlayerInput::RollCCW => net_roll -= 1.0,
+                PlayerInput::IncTrust => net_thrust += 1.0,
+                PlayerInput::DecTrust => net_thrust -= 1.0,
             }
         }
 
-        // Decelerate unpressed axes using the same world-space axis that
-        // acceleration used, so damp and drive act on exactly the same component.
-        if pitch_axis.is_none() {
+        if net_pitch != 0.0 {
+            body.angular_vel += right * ANGULAR_ACCEL * dt.0 * net_pitch;
+        } else {
             damp_axis(&mut body.angular_vel, right, damp);
         }
-        if yaw_axis.is_none() {
+        if net_yaw != 0.0 {
+            body.angular_vel += up * ANGULAR_ACCEL * dt.0 * net_yaw;
+        } else {
             damp_axis(&mut body.angular_vel, up, damp);
         }
-        if roll_axis.is_none() {
+        if net_roll != 0.0 {
+            body.angular_vel += forward * ANGULAR_ACCEL * dt.0 * net_roll;
+        } else {
             damp_axis(&mut body.angular_vel, forward, damp);
         }
-        if !thrust_driven {
+        if net_thrust != 0.0 {
+            body.vel += forward * LINEAR_ACCEL * dt.0 * net_thrust;
+        } else {
             damp_axis(&mut body.vel, forward, LINEAR_ACCEL * dt.0);
         }
     }
