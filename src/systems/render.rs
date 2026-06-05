@@ -101,9 +101,6 @@ pub fn render(
             down: (inv * DVec3::from(camera.down)).to_array(),
         };
 
-        buffers.pool.set_skycast(sky_i, 0);
-        buffers.pool.set_side_shades(s[0], s[1], s[2], s[3], s[4], s[5]);
-
         buffers.cube_fb.fill(sky);
         buffers.cube_zb.fill(0.0);
         {
