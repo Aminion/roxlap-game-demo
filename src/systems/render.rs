@@ -1,16 +1,16 @@
 use std::time::Instant;
 
-use glam::DVec3;
+use glam::{DQuat, DVec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{
-    opticast, scalar_rasterizer::ScalarRasterizer, Camera, Engine, GridView, OpticastSettings,
+    opticast, rasterizer::ScratchPool, scalar_rasterizer::ScalarRasterizer, Camera, Engine,
+    GridView, OpticastSettings,
 };
+use roxlap_formats::vxl::Vxl;
 use sdl2::pixels::{Color, PixelFormatEnum};
 
 use crate::{
-    components::{
-        camera::CameraComponent, cube_marker::CubeMarker, newton_body::NewtonBody,
-    },
+    components::{camera::CameraComponent, cube_marker::CubeMarker, newton_body::NewtonBody},
     fonts::FontRenderer,
     systems::performance_info::PerformanceInfo,
     CanvasResources, RenderBuffers, RenderTexture, WindowSize, Worlds,
@@ -48,12 +48,9 @@ pub fn render(
 
     // Push per-frame engine state onto the scratch pool.
     let sky = engine.sky_color();
-    let sky_i = i32::from_ne_bytes(sky.to_ne_bytes());
-    buffers.pool.set_skycast(sky_i, 0);
-    let s = engine.side_shades();
-    buffers
-        .pool
-        .set_side_shades(s[0], s[1], s[2], s[3], s[4], s[5]);
+    buffers.pool.set_skycast(bytemuck::cast(sky), 0);
+    let [s0, s1, s2, s3, s4, s5] = engine.side_shades();
+    buffers.pool.set_side_shades(s0, s1, s2, s3, s4, s5);
 
     let camera = {
         let mut query = <&CameraComponent>::query();
@@ -69,16 +66,15 @@ pub fn render(
     // --- Pass 1: ground world ---
     buffers.framebuffer.fill(sky);
     let t_opticast = Instant::now();
-    {
-        let grid = GridView::from_single_vxl(&worlds.base);
-        let mut rasterizer = ScalarRasterizer::new(
-            &mut buffers.framebuffer,
-            &mut buffers.zbuffer,
-            rw as usize,
-            grid,
-        );
-        let _ = opticast(&mut rasterizer, &mut buffers.pool, camera, &settings, grid);
-    }
+    run_opticast_pass(
+        &mut buffers.framebuffer,
+        &mut buffers.zbuffer,
+        rw,
+        &worlds.base,
+        &mut buffers.pool,
+        camera,
+        &settings,
+    );
 
     // --- Pass 2: rotating cube (camera-inverse-rotation) ---
     let cube_body = {
@@ -86,41 +82,26 @@ pub fn render(
         q.iter(world).next().map(|(_, b)| (b.orientation, b.pos))
     };
     if let Some((orientation, cube_center)) = cube_body {
-        // VXL local center = (VSID/2 - 0.5) on each axis.
-        let vxl_half = f64::from(crate::CUBE_VXL_VSID) / 2.0 - 0.5;
-        let vxl_center = DVec3::splat(vxl_half);
-        let inv = orientation.inverse();
-        let world_pos = DVec3::from(camera.pos);
-
-        let cube_cam = Camera {
-            // Rotate camera into VXL local space around the cube's world center.
-            // vxl_center is added AFTER rotation so the cube spins around its own center.
-            pos: (inv * (world_pos - cube_center) + vxl_center).to_array(),
-            forward: (inv * DVec3::from(camera.forward)).to_array(),
-            right: (inv * DVec3::from(camera.right)).to_array(),
-            down: (inv * DVec3::from(camera.down)).to_array(),
-        };
+        let cube_cam = cube_space_camera(camera, orientation, cube_center, crate::CUBE_VXL_VSID);
 
         buffers.cube_fb.fill(sky);
         buffers.cube_zb.fill(0.0);
-        {
-            let grid = GridView::from_single_vxl(&worlds.cube);
-            let mut rasterizer = ScalarRasterizer::new(
-                &mut buffers.cube_fb,
-                &mut buffers.cube_zb,
-                rw as usize,
-                grid,
-            );
-            let _ = opticast(&mut rasterizer, &mut buffers.pool, &cube_cam, &settings, grid);
-        }
+        run_opticast_pass(
+            &mut buffers.cube_fb,
+            &mut buffers.cube_zb,
+            rw,
+            &worlds.cube,
+            &mut buffers.pool,
+            &cube_cam,
+            &settings,
+        );
 
         // Composite: cube geometry pixels over world.
         // Sky pixels in cube_fb equal `sky` (both pre-filled and written by rasterizer),
         // so checking != sky reliably identifies geometry hits.
-        let n = (rw * rh) as usize;
-        for i in 0..n {
-            if buffers.cube_fb[i] != sky {
-                buffers.framebuffer[i] = buffers.cube_fb[i];
+        for (dst, &src) in buffers.framebuffer.iter_mut().zip(buffers.cube_fb.iter()) {
+            if src != sky {
+                *dst = src;
             }
         }
     }
@@ -149,6 +130,38 @@ pub fn render(
     render_gui(canvas_resources, font_renderer, perf);
 
     canvas_resources.canvas.present();
+}
+
+fn run_opticast_pass(
+    fb: &mut [u32],
+    zb: &mut [f32],
+    rw: u32,
+    vxl: &Vxl,
+    pool: &mut ScratchPool,
+    camera: &Camera,
+    settings: &OpticastSettings,
+) {
+    let grid = GridView::from_single_vxl(vxl);
+    let mut rasterizer = ScalarRasterizer::new(fb, zb, rw as usize, grid);
+    let _ = opticast(&mut rasterizer, pool, camera, settings, grid);
+}
+
+fn cube_space_camera(
+    world_cam: &Camera,
+    orientation: DQuat,
+    cube_center: DVec3,
+    cube_vsid: u32,
+) -> Camera {
+    let vxl_center = DVec3::splat(f64::from(cube_vsid) / 2.0 - 0.5);
+    let inv = orientation.inverse();
+    let world_pos = DVec3::from(world_cam.pos);
+    Camera {
+        // vxl_center is added AFTER rotation so the cube spins around its own center.
+        pos: (inv * (world_pos - cube_center) + vxl_center).to_array(),
+        forward: (inv * DVec3::from(world_cam.forward)).to_array(),
+        right: (inv * DVec3::from(world_cam.right)).to_array(),
+        down: (inv * DVec3::from(world_cam.down)).to_array(),
+    }
 }
 
 fn render_gui(
