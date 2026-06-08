@@ -35,7 +35,7 @@ pub fn render(
 ) {
     let t_frame = Instant::now();
 
-    let (w, h) = (screen.w, screen.h);
+    let (w, h) = (screen.width, screen.height);
     let (rw, rh) = ((w / 2).max(1), (h / 2).max(1));
 
     // Recreate buffers and texture if the window was resized.
@@ -138,6 +138,8 @@ pub fn render(
         let tf = td.dot(cam_fwd);
         let tr = td.dot(cam_right);
         let tdown = td.dot(cam_down);
+        // Scale factors match the opticast render half-extents so the indicator
+        // stays in sync with the 3-D projection (wider H-FOV on 16:9 displays).
         let rw_f = (w / 2) as f64;
         let rh_f = (h / 2) as f64;
         let cx_f = w as f64 / 2.0;

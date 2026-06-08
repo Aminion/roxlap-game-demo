@@ -43,8 +43,8 @@ const INITIAL_WINDOW_HEIGHT: u32 = 720;
 /// Window dimensions plus the world-space target direction for the rotation autopilot.
 /// Combined into one resource so the render system stays within Legion's 8-resource limit.
 pub struct ScreenState {
-    pub w: u32,
-    pub h: u32,
+    pub width: u32,
+    pub height: u32,
     /// World-space unit vector: where the autopilot should point the ship's nose.
     pub target_dir: DVec3,
 }
@@ -133,7 +133,7 @@ fn initialize() -> Result<(WindowCanvas, EventPump), String> {
 
     sdl_context.mouse().set_relative_mouse_mode(true);
 
-    let event_pump = sdl_context.event_pump().unwrap();
+    let event_pump = sdl_context.event_pump()?;
 
     Ok((canvas, event_pump))
 }
@@ -197,8 +197,8 @@ fn initial_resources(canvas: Canvas<Window>) -> Resources {
     resources.insert(canvas_resources);
     resources.insert(render_texture);
     resources.insert(ScreenState {
-        w: INITIAL_WINDOW_WIDTH,
-        h: INITIAL_WINDOW_HEIGHT,
+        width: INITIAL_WINDOW_WIDTH,
+        height: INITIAL_WINDOW_HEIGHT,
         target_dir: miner_initial_forward(),
     });
     resources.insert(MouseDelta { x: 0.0, y: 0.0 });
@@ -213,6 +213,7 @@ fn initial_resources(canvas: Canvas<Window>) -> Resources {
         cube: cube_vxl,
     });
     resources.insert(FrameTimer(Instant::now()));
+    // Overwritten at the top of every game-loop iteration before any system runs.
     resources.insert(Dt(0.0));
     resources.insert(FontRenderer::new());
     resources.insert(PerformanceInfo::new());
@@ -233,9 +234,7 @@ fn build_schedule() -> Schedule {
 }
 
 fn main() {
-    std::env::set_var("RUST_LOG", "info");
-    std::env::set_var("RUST_BACKTRACE", "1");
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let (canvas, mut event_pump) = initialize().unwrap();
 
     let mut schedule = build_schedule();
@@ -297,8 +296,8 @@ fn main() {
                     ..
                 } => {
                     let mut ss = resources.get_mut::<ScreenState>().unwrap();
-                    ss.w = x.max(1) as u32;
-                    ss.h = y.max(1) as u32;
+                    ss.width = x.max(1) as u32;
+                    ss.height = y.max(1) as u32;
                 }
                 _ => {}
             }

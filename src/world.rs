@@ -85,6 +85,12 @@ pub fn populate_world(world: &mut World) {
 }
 
 const MINER_PITCH: f64 = 0.8;
+/// Lateral offset from world-center so the miner spawns clear of the cube.
+const MINER_SPAWN_OFFSET_X: f64 = 70.0;
+/// Height above the ground plane at which the miner spawns (world units).
+const MINER_SPAWN_HEIGHT: f64 = 100.0;
+/// Vertical clearance between the ground and the bottom of the cube on spawn (world units).
+const CUBE_SPAWN_CLEARANCE: f64 = 15.0;
 
 fn miner_orientation() -> DQuat {
     let (sp, cp) = (MINER_PITCH.sin(), MINER_PITCH.cos());
@@ -103,13 +109,12 @@ pub fn miner_initial_forward() -> DVec3 {
 fn spawn_miner(world: &mut World) {
     let orientation = miner_orientation();
     let pos = DVec3::new(
-        f64::from(VSID) * 0.5 - 70.0,
+        f64::from(VSID) * 0.5 - MINER_SPAWN_OFFSET_X,
         f64::from(VSID) * 0.5,
-        f64::from(GROUND_Z) - 100.0,
+        f64::from(GROUND_Z) - MINER_SPAWN_HEIGHT,
     );
-    let fwd = orientation * DVec3::NEG_Z;
-    let right = orientation * DVec3::X;
-    let up = orientation * DVec3::Y;
+    // CameraComponent is overwritten by camera_update_system before the first render,
+    // so the initial values are placeholders.
     world.push((
         Miner,
         NewtonBody {
@@ -120,10 +125,10 @@ fn spawn_miner(world: &mut World) {
             angular_vel: DVec3::ZERO,
         },
         CameraComponent(Camera {
-            pos: pos.to_array(),
-            forward: fwd.to_array(),
-            right: right.to_array(),
-            down: (-up).to_array(),
+            pos: [0.0; 3],
+            forward: [0.0, 0.0, -1.0],
+            right: [1.0, 0.0, 0.0],
+            down: [0.0, 1.0, 0.0],
         }),
         // rot: radius=1.0 m, 0.6 N × 2 nozzles → 3.0 rad/s² max
         // lin: 5.0 N → 5.0 m/s² max linear acceleration
@@ -135,7 +140,7 @@ fn spawn_cube(world: &mut World) {
     let pos = DVec3::new(
         f64::from(VSID) / 2.0,
         f64::from(VSID) / 2.0,
-        f64::from(GROUND_Z) - f64::from(CUBE_VXL_EDGE) / 2.0 - 15.0,
+        f64::from(GROUND_Z) - f64::from(CUBE_VXL_EDGE) / 2.0 - CUBE_SPAWN_CLEARANCE,
     );
     world.push((
         CubeMarker,

@@ -34,6 +34,12 @@ impl PerformanceInfo {
     }
 }
 
+impl Default for PerformanceInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[system]
 pub fn update_info(#[resource] dt: &Dt, #[resource] info: &mut PerformanceInfo) {
     if info.update_timer.elapsed() >= PERIOD {
