@@ -28,6 +28,8 @@ pub fn apply_miner_translation(inputs: &HashSet<PlayerInput>, bank: &mut Thruste
     let down = inputs.contains(&PlayerInput::ThrustDown);
     let left = inputs.contains(&PlayerInput::ThrustLeft);
     let right = inputs.contains(&PlayerInput::ThrustRight);
+    let fwd = inputs.contains(&PlayerInput::ThrustForward);
+    let back = inputs.contains(&PlayerInput::ThrustBackward);
 
     let mut local = DVec3::ZERO;
     if up != down {
@@ -35,6 +37,9 @@ pub fn apply_miner_translation(inputs: &HashSet<PlayerInput>, bank: &mut Thruste
     }
     if left != right {
         local.x = if right { 1.0 } else { -1.0 };
+    }
+    if fwd != back {
+        local.z = if fwd { -1.0 } else { 1.0 }; // body -Z = nose/forward
     }
 
     if local.length_squared() > 1e-15 {
@@ -117,6 +122,8 @@ mod tests {
             Just(PlayerInput::ThrustDown),
             Just(PlayerInput::ThrustLeft),
             Just(PlayerInput::ThrustRight),
+            Just(PlayerInput::ThrustForward),
+            Just(PlayerInput::ThrustBackward),
             Just(PlayerInput::Damping),
         ]
     }

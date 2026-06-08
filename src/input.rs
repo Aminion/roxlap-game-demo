@@ -8,6 +8,8 @@ pub enum PlayerInput {
     ThrustDown,
     ThrustLeft,
     ThrustRight,
+    ThrustForward,
+    ThrustBackward,
     Damping,
 }
 
@@ -20,6 +22,8 @@ impl PlayerInput {
             Scancode::S => Some(PlayerInput::ThrustDown),
             Scancode::A => Some(PlayerInput::ThrustLeft),
             Scancode::D => Some(PlayerInput::ThrustRight),
+            Scancode::LShift => Some(PlayerInput::ThrustForward),
+            Scancode::Space => Some(PlayerInput::ThrustBackward),
             Scancode::Tab => Some(PlayerInput::Damping),
             _ => None,
         }
