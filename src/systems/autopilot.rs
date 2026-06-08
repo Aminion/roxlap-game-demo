@@ -194,6 +194,66 @@ mod tests {
         }
     }
 
+    // ── Roll must not be damped when autopilot is active ──────────────────
+
+    #[test]
+    fn roll_not_damped_by_autopilot() {
+        // Ship is inside the dead zone (steer_angle ≈ 0.005 rad < DEAD_ZONE = 0.01).
+        // Holding Q (roll CW) must build up freely; the dead-zone D-term must not
+        // oppose it.  Old code capped roll at max_accel / DEAD_ZONE_KD = 1.5 rad/s.
+        let target = DVec3::new(0.005, 0.0, -1.0).normalize();
+        let mut body = NewtonBody {
+            mass: 1.0,
+            pos: DVec3::ZERO,
+            vel: DVec3::ZERO,
+            orientation: DQuat::IDENTITY,
+            angular_vel: DVec3::ZERO,
+        };
+        let dt = 1.0 / 60.0;
+        let dt_obj = Dt(dt);
+        for _ in 0..60 {
+            let mut bank = ThrusterBank::new(1.0, 0.3);
+            bank.command += DVec3::NEG_Z * bank.max_accel(body.mass);
+            apply_autopilot(&body, &mut bank, target);
+            apply_thrusters(&mut body, &mut bank, dt);
+            body.integrate_rotation(&dt_obj);
+        }
+        assert!(
+            body.angular_vel.length() > 2.0,
+            "autopilot damped roll: |ω|={:.3} rad/s (expected > 2.0)",
+            body.angular_vel.length()
+        );
+    }
+
+    #[test]
+    fn heading_converges_while_rolling() {
+        // Holding Q throughout must not prevent the autopilot from converging
+        // the heading to the target.
+        let target = dir(0.8, 0.3);
+        let mut body = NewtonBody {
+            mass: 1.0,
+            pos: DVec3::ZERO,
+            vel: DVec3::ZERO,
+            orientation: DQuat::IDENTITY,
+            angular_vel: DVec3::ZERO,
+        };
+        let dt = 1.0 / 60.0;
+        let dt_obj = Dt(dt);
+        for _ in 0..(8.0 / dt) as usize {
+            let mut bank = ThrusterBank::new(1.0, 0.3);
+            bank.command += DVec3::NEG_Z * bank.max_accel(body.mass);
+            apply_autopilot(&body, &mut bank, target);
+            apply_thrusters(&mut body, &mut bank, dt);
+            body.integrate_rotation(&dt_obj);
+        }
+        let err = heading_error(&body, target);
+        assert!(
+            err < 0.05,
+            "heading failed to converge while rolling: err={:.4} rad",
+            err
+        );
+    }
+
     // ── Heading must converge to target within 5 s ─────────────────────────
 
     proptest! {
