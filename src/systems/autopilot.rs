@@ -14,10 +14,13 @@ const STEER_GAIN: f64 = 4.0;
 const MAX_ANGULAR_SPEED: f64 = 3.0;
 /// Mouse sensitivity when rotating the target direction (rad/pixel).
 const MOUSE_SENSITIVITY: f64 = 0.003;
+/// Below this heading error the autopilot stops steering and only damps residual spin.
+const DEAD_ZONE: f64 = 0.01;
 
 /// Steer toward `target_dir` using bang-bang control with a deceleration profile.
 /// The desired angular speed is capped at √(2·a·angle) — the fastest speed that
 /// still allows stopping at the target — so braking starts early enough to avoid overshoot.
+/// Within DEAD_ZONE the autopilot only damps residual spin to suppress idle chatter.
 pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: DVec3) {
     let ship_fwd = body.orientation * DVec3::NEG_Z;
 
@@ -26,6 +29,17 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
     let steer_cos = ship_fwd.dot(target_dir);
     let steer_angle = steer_sin.atan2(steer_cos);
     if steer_angle < 1e-9 {
+        return;
+    }
+
+    let max_a = bank.max_accel(body.mass);
+
+    if steer_angle < DEAD_ZONE {
+        // Proportional damp: small drift → small correction → no sign-flip chatter.
+        // The throttle in apply_thrusters scales the command naturally.
+        if body.angular_vel.length() > 1e-9 {
+            bank.command += body.orientation.inverse() * (-body.angular_vel);
+        }
         return;
     }
 
@@ -40,7 +54,6 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
         ship_fwd.cross(alt).normalize()
     };
 
-    let max_a = bank.max_accel(body.mass);
     // Max speed that still allows stopping at the target under full deceleration.
     let safe_speed = (2.0 * max_a * steer_angle).sqrt();
     let desired_speed = safe_speed.min((steer_angle * STEER_GAIN).min(MAX_ANGULAR_SPEED));
