@@ -5,9 +5,9 @@ authors = ["Aminion <aminion@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
-roxlap-core = "0.4"
-roxlap-formats = "0.4"
-roxlap-cavegen = "0.4"
+roxlap-core = "0.6"
+roxlap-formats = "0.6"
+roxlap-cavegen = "0.6"
 bytemuck = "1.25.0"
 fontdue = "0.9"
 glam = "0.33.0"
