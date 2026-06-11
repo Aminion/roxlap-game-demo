@@ -1,4 +1,4 @@
-use glam::{DQuat, DVec3};
+use glam::{DQuat, DVec3, Vec2};
 use legion::{world::SubWorld, *};
 
 use crate::{
@@ -22,6 +22,8 @@ const DEAD_ZONE_KP: f64 = 1.0;
 /// Derivative gain inside dead zone: damps residual spin (rad/s² per rad/s).
 /// Set to 2·√KP for critical damping.
 const DEAD_ZONE_KD: f64 = 2.0;
+/// Near-zero threshold for angles and vector lengths.
+const EPSILON: f64 = 1e-9;
 
 /// Steer toward `target_dir` using bang-bang control with a deceleration profile.
 /// The desired angular speed is capped at √(2·a·angle) — the fastest speed that
@@ -34,13 +36,13 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
     let steer_sin = steer_cross.length();
     let steer_cos = ship_fwd.dot(target_dir);
     let steer_angle = steer_sin.atan2(steer_cos);
-    if steer_angle < 1e-9 {
+    if steer_angle < EPSILON {
         return;
     }
 
     let max_a = bank.max_accel(body.mass);
 
-    let steer_axis = if steer_sin > 1e-9 {
+    let steer_axis = if steer_sin > EPSILON {
         steer_cross / steer_sin
     } else {
         let alt = if ship_fwd.x.abs() < 0.9 {
@@ -69,7 +71,7 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
 
     let desired_world = steer_axis * desired_speed;
     let error = desired_world - heading_av;
-    if error.length() < 1e-9 {
+    if error.length() < EPSILON {
         return;
     }
     bank.command += body.orientation.inverse() * (error / error.length() * max_a);
@@ -85,7 +87,7 @@ pub fn autopilot(
     #[resource] screen: &mut ScreenState,
     #[resource] mouse_delta: &MouseDelta,
 ) {
-    if mouse_delta.x != 0.0 || mouse_delta.y != 0.0 {
+    if *mouse_delta != Vec2::ZERO {
         let cam_axes = {
             let mut q = <(&Miner, &CameraComponent)>::query();
             q.iter(world).next().map(|(_, cam)| {
@@ -94,10 +96,9 @@ pub fn autopilot(
             })
         };
         if let Some((cam_right, cam_up)) = cam_axes {
-            let yaw = -(mouse_delta.x as f64) * MOUSE_SENSITIVITY;
-            let pitch = -(mouse_delta.y as f64) * MOUSE_SENSITIVITY;
-            let yaw_rot = DQuat::from_axis_angle(cam_up, yaw);
-            let pitch_rot = DQuat::from_axis_angle(cam_right, pitch);
+            let delta = mouse_delta.as_dvec2() * (-MOUSE_SENSITIVITY);
+            let yaw_rot = DQuat::from_axis_angle(cam_up, delta.x);
+            let pitch_rot = DQuat::from_axis_angle(cam_right, delta.y);
             screen.target_dir = (yaw_rot * pitch_rot * screen.target_dir).normalize();
         }
     }

@@ -8,7 +8,7 @@ mod world;
 use std::collections::HashSet;
 use std::time::Instant;
 
-use glam::DVec3;
+use glam::{DVec3, Vec2};
 use legion::{Resources, Schedule, World};
 use roxlap_core::{rasterizer::ScratchPool, update_lighting, Engine};
 use roxlap_formats::edit::MAXZDIM;
@@ -52,10 +52,7 @@ pub struct ScreenState {
 pub struct Dt(pub f64);
 
 /// Accumulated mouse motion for the current frame, reset before each event poll.
-pub struct MouseDelta {
-    pub x: f32,
-    pub y: f32,
-}
+pub type MouseDelta = Vec2;
 
 pub struct FrameTimer(pub Instant);
 
@@ -201,7 +198,7 @@ fn initial_resources(canvas: Canvas<Window>) -> Resources {
         height: INITIAL_WINDOW_HEIGHT,
         target_dir: miner_initial_forward(),
     });
-    resources.insert(MouseDelta { x: 0.0, y: 0.0 });
+    resources.insert(Vec2::ZERO);
     resources.insert(RenderBuffers::new(
         INITIAL_WINDOW_WIDTH / 2,
         INITIAL_WINDOW_HEIGHT / 2,
@@ -252,9 +249,7 @@ fn main() {
         }
 
         {
-            let mut md = resources.get_mut::<MouseDelta>().unwrap();
-            md.x = 0.0;
-            md.y = 0.0;
+            *resources.get_mut::<MouseDelta>().unwrap() = Vec2::ZERO;
         }
 
         for event in event_pump.poll_iter() {
@@ -287,9 +282,8 @@ fn main() {
                     }
                 }
                 Event::MouseMotion { xrel, yrel, .. } => {
-                    let mut md = resources.get_mut::<MouseDelta>().unwrap();
-                    md.x += xrel as f32;
-                    md.y += yrel as f32;
+                    *resources.get_mut::<MouseDelta>().unwrap() +=
+                        Vec2::new(xrel as f32, yrel as f32);
                 }
                 Event::Window {
                     win_event: WindowEvent::Resized(x, y),
