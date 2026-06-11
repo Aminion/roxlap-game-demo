@@ -15,7 +15,7 @@ pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) 
         let dir = bank.command / mag;
         let throttle = (mag / bank.max_accel(body.mass)).min(1.0);
         let accel = bank.accel_per_thruster(body.mass);
-        for &torque in &bank.torques {
+        for torque in bank.torques {
             let activation = dir.dot(torque).max(0.0) * throttle;
             body.angular_vel += body.orientation * (torque * (activation * accel * dt));
         }
@@ -29,7 +29,7 @@ pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) 
         let max_la = bank.max_linear_accel(body.mass);
         let throttle = (lin_mag / max_la).min(1.0);
         let la = bank.linear_force / body.mass;
-        for &axis in &bank.linear_axes {
+        for axis in bank.linear_axes {
             let activation = lin_dir.dot(axis).max(0.0) * throttle;
             body.vel += body.orientation * (axis * (activation * la * dt));
         }
@@ -93,7 +93,7 @@ mod tests {
 
     #[test]
     fn angular_vel_moves_in_commanded_direction() {
-        for &dir in &[
+        for dir in [
             DVec3::X,
             DVec3::Y,
             DVec3::Z,
@@ -135,7 +135,7 @@ mod tests {
 
     #[test]
     fn linear_vel_moves_in_commanded_direction() {
-        for &dir in &[
+        for dir in [
             DVec3::X,
             DVec3::Y,
             DVec3::Z,
