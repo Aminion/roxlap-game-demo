@@ -7,12 +7,10 @@ use crate::{
 };
 
 pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) {
-    body.angular_vel +=
-        body.orientation * (bank.command.clamp_length_max(bank.max_rot_accel) * dt);
+    body.angular_vel += body.orientation * (bank.command.clamp_length_max(bank.max_rot_accel) * dt);
     bank.command = DVec3::ZERO;
 
-    body.vel +=
-        body.orientation * (bank.linear_command.clamp_length_max(bank.max_lin_accel) * dt);
+    body.vel += body.orientation * (bank.linear_command.clamp_length_max(bank.max_lin_accel) * dt);
     bank.linear_command = DVec3::ZERO;
 }
 

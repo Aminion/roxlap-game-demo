@@ -2,8 +2,8 @@ use glam::{DMat3, DQuat, DVec3};
 use legion::World;
 use rand::RngExt;
 use roxlap_cavegen::pack_dense_grid_to_vxl;
-use roxlap_gpu::camera::Camera as GpuCamera;
 use roxlap_formats::{edit::MAXZDIM, vxl::Vxl};
+use roxlap_gpu::camera::Camera as GpuCamera;
 
 use crate::components::{
     camera::CameraComponent, cube_marker::CubeMarker, miner::Miner, newton_body::NewtonBody,

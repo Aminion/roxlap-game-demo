@@ -82,6 +82,20 @@ pub fn render(
         }
     };
 
+    draw_hud(egui_ctx, gpu, screen_size, target_screen, perf);
+
+    perf.work_timer = std::time::Instant::now();
+}
+
+fn draw_hud(
+    egui_ctx: &egui::Context,
+    gpu: &mut GpuRenderer,
+    screen_size: egui::Vec2,
+    target_screen: Option<egui::Pos2>,
+    perf: &PerformanceInfo,
+) {
+    let half = screen_size / 2.0;
+
     let raw_input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, screen_size)),
         ..Default::default()
@@ -124,8 +138,6 @@ pub fn render(
         &full_output.textures_delta,
         full_output.pixels_per_point,
     );
-
-    perf.work_timer = std::time::Instant::now();
 }
 
 fn cube_space_gpu_cam(
