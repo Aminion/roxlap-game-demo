@@ -11,7 +11,10 @@ use std::time::Instant;
 
 use glam::{DVec3, Vec2};
 use legion::{Resources, Schedule, World};
-use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+use raw_window_handle::{
+    DisplayHandle, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+    WindowHandle,
+};
 use roxlap_core::{update_lighting, Engine};
 use roxlap_formats::edit::MAXZDIM;
 use roxlap_gpu::{
@@ -112,31 +115,32 @@ impl RenderBuffers {
 
 // --- SDL2 window handle wrapper for wgpu ---
 
-/// Wraps an SDL2 window so wgpu can create a surface from it.
+/// Snapshot of an SDL2 window's raw handles for wgpu surface creation.
+///
+/// The handles are captured once at construction and returned by value on every
+/// call. This avoids re-querying SDL2's WM info per frame and matches the
+/// pattern used by the upstream `roxlap-sdl-demo` reference.
 ///
 /// # Safety
-/// `sdl2::video::Window` is `!Send + !Sync` because SDL2 is single-threaded.
-/// We declare it `Send + Sync` here because wgpu only reads the raw OS handle
-/// (a pointer/integer) during surface creation and resize, both of which
-/// happen on the main thread in this application.
-struct SdlWindowTarget(Window);
+/// Holds only `Copy` raw handles (no SDL state), so `Send + Sync` is sound as
+/// long as the backing SDL window outlives this adapter.
+struct SdlWindowHandle {
+    window: RawWindowHandle,
+    display: RawDisplayHandle,
+}
 
-unsafe impl Send for SdlWindowTarget {}
-unsafe impl Sync for SdlWindowTarget {}
+unsafe impl Send for SdlWindowHandle {}
+unsafe impl Sync for SdlWindowHandle {}
 
-impl HasWindowHandle for SdlWindowTarget {
-    fn window_handle(
-        &self,
-    ) -> Result<raw_window_handle::WindowHandle<'_>, raw_window_handle::HandleError> {
-        self.0.window_handle()
+impl HasWindowHandle for SdlWindowHandle {
+    fn window_handle(&self) -> Result<WindowHandle<'_>, raw_window_handle::HandleError> {
+        Ok(unsafe { WindowHandle::borrow_raw(self.window) })
     }
 }
 
-impl HasDisplayHandle for SdlWindowTarget {
-    fn display_handle(
-        &self,
-    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
-        self.0.display_handle()
+impl HasDisplayHandle for SdlWindowHandle {
+    fn display_handle(&self) -> Result<DisplayHandle<'_>, raw_window_handle::HandleError> {
+        Ok(unsafe { DisplayHandle::borrow_raw(self.display) })
     }
 }
 
@@ -199,7 +203,7 @@ fn build_gpu_scene(
     )
 }
 
-fn initial_resources(window: Window) -> Resources {
+fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let mut resources = Resources::default();
 
     let mut engine = Engine::new();
@@ -236,9 +240,8 @@ fn initial_resources(window: Window) -> Resources {
         engine.lights(),
     );
 
-    let arc_window = Arc::new(SdlWindowTarget(window));
     let gpu = GpuRenderer::new_blocking(
-        arc_window,
+        handle,
         (INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
         GpuRendererSettings::default(),
     )
@@ -286,9 +289,15 @@ fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let (window, mut event_pump) = initialize().unwrap();
 
+    let handle = Arc::new(SdlWindowHandle {
+        window: window.window_handle().unwrap().as_raw(),
+        display: window.display_handle().unwrap().as_raw(),
+    });
+
     let mut schedule = build_schedule();
     let mut world = World::default();
-    let mut resources = initial_resources(window);
+    let mut resources = initial_resources(handle);
+    let _window = window;
 
     populate_world(&mut world);
 

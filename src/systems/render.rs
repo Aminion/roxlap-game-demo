@@ -139,6 +139,7 @@ pub fn render(
         fov_y_rad,
         128,
     );
+    gpu.present();
 }
 
 fn cube_space_gpu_cam(

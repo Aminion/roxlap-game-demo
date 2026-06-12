@@ -13,9 +13,15 @@ pkgs.mkShell {
     SDL2_gfx
     SDL2_ttf
     open-sans
+    vulkan-loader
+    vulkan-validation-layers
+    wayland
+    libxkbcommon
   ];
 
   shellHook = ''
     ln -sf ${pkgs.open-sans}/share/fonts/truetype ./
+    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.json
+    export LD_LIBRARY_PATH="${pkgs.vulkan-loader}/lib:${pkgs.wayland}/lib:${pkgs.libxkbcommon}/lib:$LD_LIBRARY_PATH"
   '';
 }
