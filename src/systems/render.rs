@@ -4,70 +4,9 @@ use roxlap_gpu::{camera::Camera as GpuCamera, GpuRenderer};
 
 use crate::{
     components::{camera::CameraComponent, cube_marker::CubeMarker, newton_body::NewtonBody},
+    systems::performance_info::PerformanceInfo,
     GpuWorldData, ScreenState,
 };
-
-// --- Dead code kept for HUD migration ---
-#[allow(dead_code, unused_imports)]
-mod hud_dead {
-    use crate::fonts::FontRenderer;
-    use crate::systems::performance_info::PerformanceInfo;
-    use crate::{CanvasResources, RenderBuffers, RenderTexture, ScreenState, Worlds};
-    use roxlap_core::{
-        opticast, scalar_rasterizer::ScalarRasterizer, Camera, GridView, OpticastSettings,
-    };
-    use roxlap_formats::vxl::Vxl;
-    use sdl2::gfx::primitives::DrawRenderer;
-    use sdl2::pixels::{Color, PixelFormatEnum};
-
-    #[allow(dead_code)]
-    fn run_opticast_pass(
-        fb: &mut [u32],
-        zb: &mut [f32],
-        rw: u32,
-        vxl: &Vxl,
-        pool: &mut roxlap_core::rasterizer::ScratchPool,
-        camera: &Camera,
-        settings: &OpticastSettings,
-    ) {
-        let grid = GridView::from_single_vxl(vxl);
-        let mut rasterizer = ScalarRasterizer::new(fb, zb, rw as usize, grid);
-        let _ = opticast(&mut rasterizer, pool, camera, settings, grid);
-    }
-
-    #[allow(dead_code)]
-    fn render_gui(
-        canvas_resources: &mut CanvasResources,
-        font_renderer: &FontRenderer,
-        perf: &PerformanceInfo,
-        window_w: u32,
-        window_h: u32,
-        target: (i32, i32, bool),
-    ) {
-        font_renderer.draw_text(
-            canvas_resources,
-            &format!(
-                "FPS {}\nFRAME  {:.2} ms\nOPTI   {:.2} ms\nUPLOAD {:.2} ms",
-                perf.fps,
-                perf.frame_time_us as f64 / 1000.0,
-                perf.opticast_us as f64 / 1000.0,
-                perf.upload_us as f64 / 1000.0,
-            ),
-            4,
-            4,
-            16.0,
-            Color::YELLOW,
-        );
-
-        let canvas = &mut canvas_resources.canvas;
-        let cx = (window_w / 2) as i32;
-        let cy = (window_h / 2) as i32;
-        let _ = canvas.circle(cx as i16, cy as i16, 20, Color::MAGENTA);
-        let _ = canvas.circle(target.0 as i16, target.1 as i16, 5, Color::MAGENTA);
-    }
-}
-
-// --- Active GPU render system ---
 
 #[allow(clippy::too_many_arguments)]
 #[system]
@@ -78,6 +17,8 @@ pub fn render(
     #[resource] gpu: &mut GpuRenderer,
     #[resource] gpu_world: &GpuWorldData,
     #[resource] screen: &ScreenState,
+    #[resource] egui_ctx: &egui::Context,
+    #[resource] perf: &PerformanceInfo,
     world: &SubWorld,
 ) {
     let (w, h) = (screen.width, screen.height);
@@ -117,7 +58,44 @@ pub fn render(
         fov_y_rad,
         128,
     );
-    gpu.present();
+
+    let raw_input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(w as f32, h as f32),
+        )),
+        ..Default::default()
+    };
+
+    let full_output = egui_ctx.run(raw_input, |ctx| {
+        egui::Area::new(egui::Id::new("hud_perf"))
+            .fixed_pos(egui::pos2(8.0, 8.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    format!("FPS {}", perf.fps),
+                );
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    format!("FRAME  {:.2} ms", perf.frame_time_us as f64 / 1000.0),
+                );
+            });
+
+        let center = egui::pos2(w as f32 / 2.0, h as f32 / 2.0);
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            egui::Id::new("crosshair"),
+        ));
+        painter.circle_stroke(
+            center,
+            20.0,
+            egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(255, 0, 255)),
+        );
+    });
+
+    let clipped_prims = egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+    gpu.paint_egui(&clipped_prims, &full_output.textures_delta, full_output.pixels_per_point);
 }
 
 fn cube_space_gpu_cam(

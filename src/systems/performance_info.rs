@@ -42,6 +42,7 @@ impl Default for PerformanceInfo {
 
 #[system]
 pub fn update_info(#[resource] dt: &Dt, #[resource] info: &mut PerformanceInfo) {
+    info.frame_time_us_raw = (dt.0 * 1_000_000.0) as u64;
     if info.update_timer.elapsed() >= PERIOD {
         info.fps = dt.0.recip() as u64;
         info.frame_time_us = info.frame_time_us_raw;

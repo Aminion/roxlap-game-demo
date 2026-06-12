@@ -1,5 +1,4 @@
 mod components;
-mod fonts;
 mod input;
 mod math;
 mod systems;
@@ -28,7 +27,6 @@ use sdl2::{
     EventPump,
 };
 
-use crate::fonts::FontRenderer;
 use crate::input::PlayerInput;
 use crate::systems::{
     autopilot::autopilot_system,
@@ -67,50 +65,6 @@ pub struct FrameTimer(pub Instant);
 /// GPU-resident voxel scene (base world + rotating cube as two grids).
 pub struct GpuWorldData {
     pub scene: GpuSceneResident,
-}
-
-// --- Dead-code structs kept for HUD migration ---
-
-/// SDL2 canvas + texture creator, kept for future HUD layer migration.
-#[allow(dead_code)]
-pub struct CanvasResources {
-    pub canvas: sdl2::render::Canvas<Window>,
-    pub texture_creator: sdl2::render::TextureCreator<sdl2::video::WindowContext>,
-}
-
-/// Long-lived streaming texture for the 3-D framebuffer. Kept for HUD migration.
-#[allow(dead_code)]
-pub struct RenderTexture(pub sdl2::render::Texture);
-
-/// Reusable per-frame scratch buffers. Kept for HUD migration.
-#[allow(dead_code)]
-pub struct RenderBuffers {
-    pub pool: roxlap_core::rasterizer::ScratchPool,
-    pub framebuffer: Vec<u32>,
-    pub zbuffer: Vec<f32>,
-    pub cube_fb: Vec<u32>,
-    pub cube_zb: Vec<f32>,
-    pub width: u32,
-    pub height: u32,
-}
-
-#[allow(dead_code)]
-impl RenderBuffers {
-    pub fn new(width: u32, height: u32, vsid: u32) -> Self {
-        let n = (width * height) as usize;
-        let pool_vsid = vsid.max(CUBE_VXL_VSID);
-        let mut pool = roxlap_core::rasterizer::ScratchPool::new(width, height, pool_vsid);
-        pool.set_treat_z_max_as_air(true);
-        Self {
-            pool,
-            framebuffer: vec![0u32; n],
-            zbuffer: vec![0.0f32; n],
-            cube_fb: vec![0u32; n],
-            cube_zb: vec![0.0f32; n],
-            width,
-            height,
-        }
-    }
 }
 
 // --- SDL2 window handle wrapper for wgpu ---
@@ -265,7 +219,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     });
     resources.insert(FrameTimer(Instant::now()));
     resources.insert(Dt(0.0));
-    resources.insert(FontRenderer::new());
+    resources.insert(egui::Context::default());
     resources.insert(PerformanceInfo::new());
     resources.insert(gpu);
     resources.insert(gpu_world);
@@ -286,7 +240,7 @@ fn build_schedule() -> Schedule {
 }
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    //env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let (window, mut event_pump) = initialize().unwrap();
 
     let handle = Arc::new(SdlWindowHandle {
