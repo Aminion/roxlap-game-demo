@@ -44,15 +44,14 @@ use crate::world::{
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
 const INITIAL_WINDOW_HEIGHT: u32 = 720;
 
-/// Window dimensions plus the world-space target direction for the rotation autopilot.
-/// Combined into one resource so the render system stays within Legion's 8-resource limit.
 pub struct ScreenState {
     pub width: u32,
     pub height: u32,
     pub fov_y_rad: f32,
-    /// World-space unit vector: where the autopilot should point the ship's nose.
-    pub target_dir: DVec3,
 }
+
+/// World-space unit vector: where the autopilot should point the ship's nose.
+pub struct AutopilotTarget(pub DVec3);
 
 pub struct Dt(pub f64);
 
@@ -214,8 +213,8 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
         width: INITIAL_WINDOW_WIDTH,
         height: INITIAL_WINDOW_HEIGHT,
         fov_y_rad: fov_y(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
-        target_dir: miner_initial_forward(),
     });
+    resources.insert(AutopilotTarget(miner_initial_forward()));
     resources.insert(Vec2::ZERO);
     resources.insert(HashSet::<PlayerInput>::new());
     resources.insert(Worlds {

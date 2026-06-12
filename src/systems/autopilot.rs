@@ -6,7 +6,7 @@ use crate::{
         camera::CameraComponent, miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank,
     },
     math::reject,
-    MouseDelta, ScreenState,
+    AutopilotTarget, MouseDelta,
 };
 
 /// Proportional angular gain (rad/s per radian of error).
@@ -84,7 +84,7 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
 #[write_component(ThrusterBank)]
 pub fn autopilot(
     world: &mut SubWorld,
-    #[resource] screen: &mut ScreenState,
+    #[resource] autopilot_target: &mut AutopilotTarget,
     #[resource] mouse_delta: &MouseDelta,
 ) {
     if *mouse_delta != Vec2::ZERO {
@@ -102,11 +102,11 @@ pub fn autopilot(
             let delta = mouse_delta.as_dvec2() * (-MOUSE_SENSITIVITY);
             let yaw_rot = DQuat::from_axis_angle(cam_up, delta.x);
             let pitch_rot = DQuat::from_axis_angle(cam_right, delta.y);
-            screen.target_dir = (yaw_rot * pitch_rot * screen.target_dir).normalize();
+            autopilot_target.0 = (yaw_rot * pitch_rot * autopilot_target.0).normalize();
         }
     }
 
-    let target_dir = screen.target_dir;
+    let target_dir = autopilot_target.0;
 
     let mut q = <(&Miner, &NewtonBody, &mut ThrusterBank)>::query();
     for (_, body, bank) in q.iter_mut(world) {

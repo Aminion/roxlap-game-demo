@@ -5,7 +5,7 @@ use roxlap_gpu::{camera::Camera as GpuCamera, GpuRenderer};
 use crate::{
     components::{camera::CameraComponent, cube_marker::CubeMarker, newton_body::NewtonBody},
     systems::performance_info::PerformanceInfo,
-    GpuWorldData, ScreenState,
+    AutopilotTarget, GpuWorldData, ScreenState,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -17,6 +17,7 @@ pub fn render(
     #[resource] gpu: &mut GpuRenderer,
     #[resource] gpu_world: &GpuWorldData,
     #[resource] screen: &ScreenState,
+    #[resource] autopilot_target: &AutopilotTarget,
     #[resource] egui_ctx: &egui::Context,
     #[resource] perf: &mut PerformanceInfo,
     world: &SubWorld,
@@ -69,7 +70,7 @@ pub fn render(
     // Project target_dir into screen space.
     // fov_y = 2*atan(h/w) → tan(fov_y/2) = h/w → focal_pixels = w/2.
     let target_screen = {
-        let td = screen.target_dir.as_vec3();
+        let td = autopilot_target.0.as_vec3();
         let f = td.dot(Vec3::from(world_cam.forward));
         if f > 0.01 {
             let r = td.dot(Vec3::from(world_cam.right));
