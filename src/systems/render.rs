@@ -21,10 +21,9 @@ pub fn render(
     #[resource] perf: &mut PerformanceInfo,
     world: &SubWorld,
 ) {
-    let (w, h) = (screen.width, screen.height);
-    let screen_size = egui::vec2(w as f32, h as f32);
+    let screen_size = egui::vec2(screen.width as f32, screen.height as f32);
     let half = screen_size / 2.0;
-    let fov_y_rad = 2.0 * f32::atan(screen_size.y / screen_size.x);
+    let fov_y_rad = screen.fov_y_rad;
 
     let core_cam = {
         let mut query = <&CameraComponent>::query();

@@ -49,6 +49,7 @@ const INITIAL_WINDOW_HEIGHT: u32 = 720;
 pub struct ScreenState {
     pub width: u32,
     pub height: u32,
+    pub fov_y_rad: f32,
     /// World-space unit vector: where the autopilot should point the ship's nose.
     pub target_dir: DVec3,
 }
@@ -212,6 +213,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(ScreenState {
         width: INITIAL_WINDOW_WIDTH,
         height: INITIAL_WINDOW_HEIGHT,
+        fov_y_rad: fov_y(INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
         target_dir: miner_initial_forward(),
     });
     resources.insert(Vec2::ZERO);
@@ -240,6 +242,10 @@ fn build_schedule() -> Schedule {
         .add_system(newton_body_system())
         .add_thread_local(render_system())
         .build()
+}
+
+fn fov_y(w: u32, h: u32) -> f32 {
+    2.0 * f32::atan(h as f32 / w as f32)
 }
 
 fn main() {
@@ -313,6 +319,7 @@ fn main() {
                         let mut ss = resources.get_mut::<ScreenState>().unwrap();
                         ss.width = new_w;
                         ss.height = new_h;
+                        ss.fov_y_rad = fov_y(new_w, new_h);
                     }
                     resources
                         .get_mut::<GpuRenderer>()
