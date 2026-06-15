@@ -227,6 +227,13 @@ fn build_schedule() -> Schedule {
         .add_system(thruster_system())
         .add_system(newton_body_system())
         .add_system(chunk_population_system())
+        // Apply chunk_population's command buffer (newly spawned asteroid
+        // entities) BEFORE render runs. Without this flush, legion defers the
+        // `commands.push(...)` entities until the end-of-schedule flush — i.e.
+        // after the thread-local render — so freshly generated asteroids are
+        // missing from render's transform rebuild and get drawn with a
+        // degenerate placeholder transform (a big quad at the world origin).
+        .flush()
         .add_thread_local(render_system())
         .build()
 }
