@@ -6,7 +6,9 @@ use roxlap_gpu::{
 };
 
 use crate::{
-    components::{asteroid::AsteroidMarker, camera::CameraComponent, newton_body::NewtonBody},
+    components::{
+        asteroid::AsteroidMarker, camera::CameraComponent, miner::Miner, newton_body::NewtonBody,
+    },
     systems::performance_info::PerformanceInfo,
     AutopilotTarget, GpuWorldData, ScreenState, SpriteData,
 };
@@ -15,6 +17,7 @@ use crate::{
 #[system]
 #[read_component(CameraComponent)]
 #[read_component(AsteroidMarker)]
+#[read_component(Miner)]
 #[read_component(NewtonBody)]
 pub fn render(
     #[resource] gpu: &mut GpuRenderer,
@@ -88,7 +91,12 @@ pub fn render(
         }
     };
 
-    draw_hud(egui_ctx, gpu, screen_size, target_screen, perf);
+    let ship_pos = {
+        let mut q = <(&Miner, &NewtonBody)>::query();
+        q.iter(world).next().map(|(_, b)| b.pos)
+    };
+
+    draw_hud(egui_ctx, gpu, screen_size, target_screen, perf, ship_pos);
 
     perf.work_timer = std::time::Instant::now();
 }
@@ -99,6 +107,7 @@ fn draw_hud(
     screen_size: egui::Vec2,
     target_screen: Option<egui::Pos2>,
     perf: &PerformanceInfo,
+    ship_pos: Option<DVec3>,
 ) {
     let half = screen_size / 2.0;
 
@@ -117,6 +126,12 @@ fn draw_hud(
                     egui::Color32::YELLOW,
                     format!("WORK   {:.2} ms", perf.work_time_us as f64 / 1000.0),
                 );
+                if let Some(p) = ship_pos {
+                    ui.colored_label(
+                        egui::Color32::YELLOW,
+                        format!("POS  {:.1}  {:.1}  {:.1}", p.x, p.y, p.z),
+                    );
+                }
             });
 
         let center = egui::pos2(half.x, half.y);
