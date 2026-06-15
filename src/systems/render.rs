@@ -101,7 +101,7 @@ fn draw_hud(
         ..Default::default()
     };
 
-    let full_output = egui_ctx.run(raw_input, |ctx| {
+    let full_output = egui_ctx.run_ui(raw_input, |ctx| {
         egui::Area::new(egui::Id::new("hud_perf"))
             .fixed_pos(egui::pos2(8.0, 8.0))
             .interactable(false)

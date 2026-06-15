@@ -5,13 +5,13 @@ authors = ["Aminion <aminion@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
-roxlap-core = "0.7"
-roxlap-formats = "0.7"
-roxlap-cavegen = "0.7"
-roxlap-gpu = { version = "0.7", features = ["hud"] }
+roxlap-core = "0.11"
+roxlap-formats = "0.11"
+roxlap-cavegen = "0.11"
+roxlap-gpu = { version = "0.11", features = ["hud"] }
 raw-window-handle = "0.6"
 bytemuck = "1.25.0"
-egui = "0.29"
+egui = "0.34"
 glam = "0.33.1"
 crossbeam = "0.8.4"
 rand = "0.10.1"
