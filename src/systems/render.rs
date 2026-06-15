@@ -1,6 +1,7 @@
-use glam::{DQuat, DVec3, Vec3};
+use bytemuck::Zeroable;
+use glam::{DVec3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
-use roxlap_gpu::{camera::Camera as GpuCamera, GpuRenderer};
+use roxlap_gpu::{camera::Camera as GpuCamera, GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 
 use crate::{
     components::{camera::CameraComponent, cube_marker::CubeMarker, newton_body::NewtonBody},
@@ -40,28 +41,30 @@ pub fn render(
         ..core_cam
     };
 
-    let cube_cam = {
+    // Update asteroid sprite transform from its physics body each frame.
+    {
         let mut q = <(&CubeMarker, &NewtonBody)>::query();
-        q.iter(world)
-            .next()
-            .map(|(_, b)| {
-                cube_space_gpu_cam(
-                    &core_cam,
-                    b.orientation,
-                    b.pos,
-                    crate::CUBE_VXL_VSID,
-                    fov_y_rad,
-                )
-            })
-            .unwrap_or(world_cam)
-    };
+        if let Some((_, b)) = q.iter(world).next() {
+            let s = (b.orientation * DVec3::X).as_vec3();
+            let h = (b.orientation * DVec3::Y).as_vec3();
+            let f = (b.orientation * DVec3::Z).as_vec3();
+            let mut transform = SpriteInstanceTransform::zeroed();
+            transform.inv_rot = [
+                [s.x, h.x, f.x, 0.0],
+                [s.y, h.y, f.y, 0.0],
+                [s.z, h.z, f.z, 0.0],
+            ];
+            transform.pos = b.pos.as_vec3().to_array();
+            gpu.update_sprite_instance_transforms(&[SpriteInstance { model_id: 0, transform }]);
+        }
+    }
 
     // Snapshot work time before vsync blocks inside render_scene.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
     gpu.render_scene(
         &gpu_world.scene,
-        &[world_cam, cube_cam],
+        &[world_cam],
         &world_cam,
         fov_y_rad,
         128,
@@ -140,25 +143,3 @@ fn draw_hud(
     );
 }
 
-fn cube_space_gpu_cam(
-    world_cam: &GpuCamera,
-    orientation: DQuat,
-    cube_center: DVec3,
-    cube_vsid: u32,
-    fov_y_rad: f32,
-) -> GpuCamera {
-    let vxl_center = DVec3::splat(f64::from(cube_vsid) / 2.0 - 0.5);
-    let inv = orientation.inverse();
-    let world_pos = Vec3::from(world_cam.position).as_dvec3();
-    let pos = inv * (world_pos - cube_center) + vxl_center;
-    let fwd = inv * Vec3::from(world_cam.forward).as_dvec3();
-    let right = inv * Vec3::from(world_cam.right).as_dvec3();
-    let down = inv * Vec3::from(world_cam.down).as_dvec3();
-    GpuCamera {
-        position: pos.as_vec3().into(),
-        forward: fwd.as_vec3().into(),
-        right: right.as_vec3().into(),
-        down: down.as_vec3().into(),
-        fov_y_rad,
-    }
-}

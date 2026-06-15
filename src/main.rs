@@ -18,6 +18,7 @@ use roxlap_core::{update_lighting, Engine};
 use roxlap_formats::edit::MAXZDIM;
 use roxlap_gpu::{
     decompress_chunk, GpuRenderer, GpuRendererSettings, GpuSceneResident, GridUpload, SceneUpload,
+    SpriteInstance, SpriteInstanceTransform, SpriteModelRegistry,
 };
 use sdl2::{
     event::{Event, WindowEvent},
@@ -38,7 +39,7 @@ use crate::systems::{
     thruster::thruster_system,
 };
 use crate::world::{
-    build_cube_vxl, build_world, miner_initial_forward, populate_world, CUBE_VXL_VSID, VSID,
+    build_asteroid_sprite_model, build_world, miner_initial_forward, populate_world, VSID,
 };
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
@@ -62,9 +63,15 @@ pub struct FrameTimer(pub Instant);
 
 // --- GPU resources ---
 
-/// GPU-resident voxel scene (base world + rotating cube as two grids).
+/// GPU-resident voxel scene (base world grid).
 pub struct GpuWorldData {
     pub scene: GpuSceneResident,
+}
+
+/// CPU-side sprite model registry, kept alive so future edits (destruction)
+/// can call `gpu.update_sprite_model(&sprite_data.registry, chain_id)`.
+pub struct SpriteData {
+    pub registry: SpriteModelRegistry,
 }
 
 // --- SDL2 window handle wrapper for wgpu ---
@@ -126,11 +133,7 @@ fn initialize() -> Result<(Window, EventPump), String> {
     Ok((window, event_pump))
 }
 
-fn build_gpu_scene(
-    gpu: &GpuRenderer,
-    vxl: &roxlap_formats::vxl::Vxl,
-    cube_vxl: &roxlap_formats::vxl::Vxl,
-) -> GpuSceneResident {
+fn build_gpu_scene(gpu: &GpuRenderer, vxl: &roxlap_formats::vxl::Vxl) -> GpuSceneResident {
     let base_chunk = decompress_chunk(vxl);
     let base_grid = GridUpload {
         vsid: VSID,
@@ -139,22 +142,7 @@ fn build_gpu_scene(
         pool_dims: [1, 1, 1],
         chunks: vec![([0, 0, 0], base_chunk)],
     };
-
-    let cube_chunk = decompress_chunk(cube_vxl);
-    let cube_grid = GridUpload {
-        vsid: CUBE_VXL_VSID,
-        origin_chunk: [0, 0, 0],
-        chunks_dims: [1, 1, 1],
-        pool_dims: [1, 1, 1],
-        chunks: vec![([0, 0, 0], cube_chunk)],
-    };
-
-    GpuSceneResident::upload(
-        gpu.device(),
-        &SceneUpload {
-            grids: vec![base_grid, cube_grid],
-        },
-    )
+    GpuSceneResident::upload(gpu.device(), &SceneUpload { grids: vec![base_grid] })
 }
 
 fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
@@ -179,22 +167,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
         engine.lights(),
     );
 
-    let mut cube_vxl = build_cube_vxl();
-    update_lighting(
-        &mut cube_vxl.data,
-        &cube_vxl.column_offset,
-        cube_vxl.vsid,
-        0,
-        0,
-        0,
-        cube_vxl.vsid as i32,
-        cube_vxl.vsid as i32,
-        MAXZDIM,
-        engine.lightmode(),
-        engine.lights(),
-    );
-
-    let gpu = GpuRenderer::new_blocking(
+    let mut gpu = GpuRenderer::new_blocking(
         handle,
         (INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
         GpuRendererSettings {
@@ -205,8 +178,16 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     .expect("GPU init failed — no Vulkan/Metal/DX12 adapter?");
 
     let gpu_world = GpuWorldData {
-        scene: build_gpu_scene(&gpu, &vxl, &cube_vxl),
+        scene: build_gpu_scene(&gpu, &vxl),
     };
+
+    let mut sprite_registry = SpriteModelRegistry::new();
+    sprite_registry.add(build_asteroid_sprite_model());
+    let placeholder: SpriteInstanceTransform = bytemuck::Zeroable::zeroed();
+    gpu.set_sprite_instances(
+        &sprite_registry,
+        &[SpriteInstance { model_id: 0, transform: placeholder }],
+    );
 
     resources.insert(engine);
     resources.insert(ScreenState {
@@ -223,6 +204,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(PerformanceInfo::new());
     resources.insert(gpu);
     resources.insert(gpu_world);
+    resources.insert(SpriteData { registry: sprite_registry });
 
     resources
 }

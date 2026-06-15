@@ -3,7 +3,7 @@ use legion::World;
 use rand::RngExt;
 use roxlap_cavegen::pack_dense_grid_to_vxl;
 use roxlap_formats::{edit::MAXZDIM, vxl::Vxl};
-use roxlap_gpu::camera::Camera as GpuCamera;
+use roxlap_gpu::{camera::Camera as GpuCamera, SpriteModel};
 
 use crate::components::{
     camera::CameraComponent, cube_marker::CubeMarker, miner::Miner, newton_body::NewtonBody,
@@ -44,32 +44,51 @@ pub fn build_world() -> Vxl {
     pack_dense_grid_to_vxl(&mask, &colour, VSID)
 }
 
-pub fn build_cube_vxl() -> Vxl {
+pub fn build_asteroid_sprite_model() -> SpriteModel {
     let vsid = CUBE_VXL_VSID as usize;
-    let cells = vsid * vsid * MAXZDIM as usize;
-
-    let mut mask = vec![0u8; cells];
-    let mut colour = vec![0u32; cells];
-
     let center = CUBE_VXL_VSID as f64 / 2.0;
     let radius = center - 0.5;
+
+    let mx = CUBE_VXL_VSID;
+    let my = CUBE_VXL_VSID;
+    let mz = CUBE_VXL_VSID;
+    let occ_words_per_col = mz.div_ceil(32).max(1);
+    let cols = (mx * my) as usize;
+
+    let mut occupancy = vec![0u32; cols * occ_words_per_col as usize];
+    let mut color_offsets = vec![0u32; cols + 1];
+    let mut colors: Vec<u32> = Vec::new();
+    let mut dirs: Vec<u32> = Vec::new();
 
     let mut rng = rand::rng();
     for y in 0..vsid {
         for x in 0..vsid {
+            let col = x + y * vsid;
+            color_offsets[col] = colors.len() as u32;
             for z in 0..vsid {
                 let dx = x as f64 + 0.5 - center;
                 let dy = y as f64 + 0.5 - center;
                 let dz = z as f64 + 0.5 - center;
                 if dx * dx + dy * dy + dz * dz <= radius * radius {
-                    let i = voxel_idx(x, y, z, vsid);
-                    mask[i] = 1;
-                    colour[i] = random_voxel_colour(&mut rng);
+                    occupancy[col * occ_words_per_col as usize + z / 32] |= 1u32 << (z % 32);
+                    colors.push(random_voxel_colour(&mut rng));
+                    dirs.push(0);
                 }
             }
         }
     }
-    pack_dense_grid_to_vxl(&mask, &colour, CUBE_VXL_VSID)
+    color_offsets[cols] = colors.len() as u32;
+
+    SpriteModel {
+        dims: [mx, my, mz],
+        occ_words_per_col,
+        pivot: [center as f32, center as f32, center as f32],
+        occupancy,
+        colors,
+        dirs,
+        color_offsets,
+        voxel_world_size: 1.0,
+    }
 }
 
 pub fn populate_world(world: &mut World) {
