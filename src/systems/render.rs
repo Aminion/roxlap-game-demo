@@ -161,7 +161,7 @@ fn draw_hud(
     );
 }
 
-fn sprite_from_body(b: &NewtonBody, model_id: u32) -> SpriteInstance {
+pub(crate) fn sprite_from_body(b: &NewtonBody, model_id: u32) -> SpriteInstance {
     let s = (b.orientation * DVec3::X).as_vec3();
     let h = (b.orientation * DVec3::Y).as_vec3();
     let f = (b.orientation * DVec3::Z).as_vec3();
