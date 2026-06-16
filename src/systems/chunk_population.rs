@@ -5,7 +5,9 @@ use rand::RngExt;
 use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 
 use crate::{
-    components::{asteroid::AsteroidMarker, miner::Miner, newton_body::NewtonBody},
+    components::{
+        asteroid::AsteroidMarker, miner::Miner, newton_body::NewtonBody, sprite_id::SpriteId,
+    },
     generation::chunks::{missing_chunks, CHUNK_SIZE, LOAD_RADIUS},
     systems::render::sprite_from_body,
     world::build_asteroid_sprite_model,
@@ -85,7 +87,8 @@ pub fn chunk_population(
                 (rng.random::<f64>() - 0.5) * 2.0,
             );
             commands.push((
-                AsteroidMarker { model_id: next_id },
+                AsteroidMarker,
+                SpriteId { model_id: next_id },
                 NewtonBody {
                     mass: 1.0,
                     pos: chunk_centre,

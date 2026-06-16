@@ -7,7 +7,7 @@ use roxlap_gpu::{
 
 use crate::{
     components::{
-        asteroid::AsteroidMarker, camera::CameraComponent, miner::Miner, newton_body::NewtonBody,
+        camera::CameraComponent, miner::Miner, newton_body::NewtonBody, sprite_id::SpriteId,
     },
     systems::performance_info::PerformanceInfo,
     AutopilotTarget, GpuWorldData, ScreenState, SpriteData,
@@ -16,7 +16,7 @@ use crate::{
 #[allow(clippy::too_many_arguments)]
 #[system]
 #[read_component(CameraComponent)]
-#[read_component(AsteroidMarker)]
+#[read_component(SpriteId)]
 #[read_component(Miner)]
 #[read_component(NewtonBody)]
 pub fn render(
@@ -59,11 +59,11 @@ pub fn render(
                 count
             ];
 
-            let mut q = <(&AsteroidMarker, &NewtonBody)>::query();
-            for (marker, b) in q.iter(world) {
-                let slot = marker.model_id as usize;
+            let mut q = <(&SpriteId, &NewtonBody)>::query();
+            for (sprite, b) in q.iter(world) {
+                let slot = sprite.model_id as usize;
                 if slot < count {
-                    transforms[slot] = sprite_from_body(b, marker.model_id);
+                    transforms[slot] = sprite_from_body(b, sprite.model_id);
                 }
             }
 
