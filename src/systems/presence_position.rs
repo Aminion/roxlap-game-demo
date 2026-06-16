@@ -51,12 +51,20 @@ pub fn presence_position_update(
     }
 
     let mut rng = rand::rng();
-    let mut next_id = sprite_data.instance_count;
+    let placeholder = SpriteInstanceTransform::zeroed();
 
     for &chunk in &to_generate {
         let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
         for _ in 0..ASTEROIDS_PER_CHUNK {
-            sprite_data.registry.add(build_asteroid_sprite_model());
+            let chain_id = sprite_data.registry.add(build_asteroid_sprite_model());
+            gpu.add_sprite_model(&sprite_data.registry, chain_id);
+            let slot = gpu.append_sprite_instances(
+                &sprite_data.registry,
+                &[SpriteInstance {
+                    model_id: chain_id,
+                    transform: placeholder,
+                }],
+            );
             let angular_vel = DVec3::new(
                 (rng.random::<f64>() - 0.5) * 2.0,
                 (rng.random::<f64>() - 0.5) * 2.0,
@@ -64,7 +72,7 @@ pub fn presence_position_update(
             );
             commands.push((
                 AsteroidMarker,
-                SpriteId { model_id: next_id },
+                SpriteId { model_id: slot },
                 NewtonBody {
                     mass: 1.0,
                     pos: chunk_centre,
@@ -73,18 +81,7 @@ pub fn presence_position_update(
                     angular_vel,
                 },
             ));
-            next_id += 1;
         }
         generated.0.insert(chunk);
     }
-
-    let placeholder = SpriteInstanceTransform::zeroed();
-    let instances: Vec<SpriteInstance> = (0..next_id)
-        .map(|id| SpriteInstance {
-            model_id: id,
-            transform: placeholder,
-        })
-        .collect();
-    gpu.set_sprite_instances(&sprite_data.registry, &instances);
-    sprite_data.instance_count = next_id;
 }

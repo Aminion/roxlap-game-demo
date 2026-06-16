@@ -72,8 +72,6 @@ pub struct GpuWorldData {
 /// can call `gpu.update_sprite_model(&sprite_data.registry, chain_id)`.
 pub struct SpriteData {
     pub registry: SpriteModelRegistry,
-    /// Number of sprite instance slots currently allocated in the GPU buffer.
-    pub instance_count: u32,
 }
 
 /// Set of chunk coordinates (in chunk-space) that have already been generated.
@@ -211,7 +209,6 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(gpu_world);
     resources.insert(SpriteData {
         registry: sprite_registry,
-        instance_count: 0,
     });
     resources.insert(GeneratedChunks(HashSet::new()));
 

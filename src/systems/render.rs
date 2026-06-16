@@ -10,7 +10,7 @@ use crate::{
         camera::CameraComponent, miner::Miner, newton_body::NewtonBody, sprite_id::SpriteId,
     },
     systems::performance_info::PerformanceInfo,
-    AutopilotTarget, GpuWorldData, ScreenState, SpriteData,
+    AutopilotTarget, GpuWorldData, ScreenState,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -26,7 +26,6 @@ pub fn render(
     #[resource] autopilot_target: &AutopilotTarget,
     #[resource] egui_ctx: &egui::Context,
     #[resource] perf: &mut PerformanceInfo,
-    #[resource] sprite_data: &SpriteData,
     world: &SubWorld,
 ) {
     let screen_size = egui::vec2(screen.width as f32, screen.height as f32);
@@ -49,7 +48,7 @@ pub fn render(
 
     // Rebuild all asteroid sprite transforms each frame.
     {
-        let count = sprite_data.instance_count as usize;
+        let count = gpu.sprite_instance_count();
         if count > 0 {
             let mut transforms: Vec<SpriteInstance> = vec![
                 SpriteInstance {
