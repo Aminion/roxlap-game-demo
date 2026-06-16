@@ -33,10 +33,10 @@ use crate::input::PlayerInput;
 use crate::systems::{
     autopilot::autopilot_system,
     camera::camera_update_system,
-    chunk_population::chunk_population_system,
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     performance_info::{update_info_system, PerformanceInfo},
+    presence_position::presence_position_update_system,
     render::render_system,
     thruster::thruster_system,
 };
@@ -226,13 +226,11 @@ fn build_schedule() -> Schedule {
         .add_system(autopilot_system())
         .add_system(thruster_system())
         .add_system(newton_body_system())
-        .add_system(chunk_population_system())
-        // Apply chunk_population's command buffer (newly spawned asteroid
-        // entities) BEFORE render runs. Without this flush, legion defers the
-        // `commands.push(...)` entities until the end-of-schedule flush — i.e.
-        // after the thread-local render — so freshly generated asteroids are
-        // missing from render's transform rebuild and get drawn with a
-        // degenerate placeholder transform (a big quad at the world origin).
+        .add_system(presence_position_update_system())
+        // Flush command buffer so newly-spawned asteroid entities are visible
+        // to the render system in the same frame. Without this, legion defers
+        // `commands.push(...)` until after the thread-local render, causing
+        // freshly-generated asteroids to flash a degenerate quad at the origin.
         .flush()
         .add_thread_local(render_system())
         .build()

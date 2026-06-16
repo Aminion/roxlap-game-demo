@@ -6,7 +6,8 @@ use roxlap_formats::{edit::MAXZDIM, vxl::Vxl};
 use roxlap_gpu::{camera::Camera as GpuCamera, SpriteModel};
 
 use crate::components::{
-    camera::CameraComponent, miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank,
+    camera::CameraComponent, miner::Miner, newton_body::NewtonBody,
+    presence_position::PresencePosition, thruster::ThrusterBank,
 };
 
 pub const VSID: u32 = 64;
@@ -139,5 +140,7 @@ fn spawn_miner(world: &mut World) {
         }),
         // mass=1.0 kg, radius=1.0 m, rot=0.6 N → 3.0 rad/s² max; lin=5.0 N → 5.0 m/s² max
         ThrusterBank::new(1.0, 1.0, 0.6, 5.0),
+        // Infinity forces the distance check to fire on frame 1, generating the initial chunks.
+        PresencePosition(DVec3::splat(f64::INFINITY)),
     ));
 }
