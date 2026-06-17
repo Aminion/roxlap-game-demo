@@ -13,8 +13,7 @@ pub fn world_to_chunk(world_pos: DVec3) -> IVec3 {
     (world_pos / CHUNK_SIZE as f64).floor().as_ivec3()
 }
 
-/// Return all chunk coords within `radius` chunks of `center` (inclusive, Manhattan
-/// approximated by axis-aligned cube; swap for sphere if needed).
+/// Return all chunk coords within `radius` chunks of `center` (inclusive, Euclidean sphere).
 pub fn chunks_in_sphere(center: IVec3, radius: i32) -> impl Iterator<Item = IVec3> {
     let r2 = radius * radius;
     (-radius..=radius).flat_map(move |dx| {
@@ -27,12 +26,14 @@ pub fn chunks_in_sphere(center: IVec3, radius: i32) -> impl Iterator<Item = IVec
     })
 }
 
-/// Return chunk coords within `radius` chunks of `ship_pos` that are not yet generated.
-pub fn missing_chunks(ship_pos: DVec3, radius: i32, generated: &HashSet<IVec3>) -> Vec<IVec3> {
+/// Return chunk coords within `radius` chunks of `ship_pos` that have not yet been visited.
+pub fn missing_chunks<'a>(
+    ship_pos: DVec3,
+    radius: i32,
+    visited: &'a HashSet<IVec3>,
+) -> impl Iterator<Item = IVec3> + 'a {
     let center = world_to_chunk(ship_pos);
-    chunks_in_sphere(center, radius)
-        .filter(|c| !generated.contains(c))
-        .collect()
+    chunks_in_sphere(center, radius).filter(move |c| !visited.contains(c))
 }
 
 #[cfg(test)]
@@ -101,25 +102,24 @@ mod tests {
     }
 
     #[test]
-    fn missing_chunks_empty_generated_returns_full_sphere() {
-        let generated = HashSet::new();
-        let missing = missing_chunks(DVec3::ZERO, 1, &generated);
-        assert_eq!(missing.len(), 7);
+    fn missing_chunks_empty_visited_returns_full_sphere() {
+        let visited = HashSet::new();
+        let count = missing_chunks(DVec3::ZERO, 1, &visited).count();
+        assert_eq!(count, 7);
     }
 
     #[test]
-    fn missing_chunks_excludes_generated() {
+    fn missing_chunks_excludes_visited() {
         let center = IVec3::ZERO;
-        let mut generated: HashSet<IVec3> = chunks_in_sphere(center, 1).collect();
-        generated.remove(&IVec3::new(1, 0, 0));
-        let missing = missing_chunks(DVec3::ZERO, 1, &generated);
+        let mut visited: HashSet<IVec3> = chunks_in_sphere(center, 1).collect();
+        visited.remove(&IVec3::new(1, 0, 0));
+        let missing: Vec<_> = missing_chunks(DVec3::ZERO, 1, &visited).collect();
         assert_eq!(missing, vec![IVec3::new(1, 0, 0)]);
     }
 
     #[test]
-    fn missing_chunks_all_generated_returns_empty() {
-        let generated: HashSet<IVec3> = chunks_in_sphere(IVec3::ZERO, 2).collect();
-        let missing = missing_chunks(DVec3::ZERO, 2, &generated);
-        assert!(missing.is_empty());
+    fn missing_chunks_all_visited_returns_empty() {
+        let visited: HashSet<IVec3> = chunks_in_sphere(IVec3::ZERO, 2).collect();
+        assert!(missing_chunks(DVec3::ZERO, 2, &visited).next().is_none());
     }
 }

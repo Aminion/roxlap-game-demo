@@ -71,8 +71,8 @@ pub struct SpriteData {
     pub registry: SpriteModelRegistry,
 }
 
-/// Set of chunk coordinates (in chunk-space) that have already been generated.
-pub struct GeneratedChunks(pub HashSet<IVec3>);
+/// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
+pub struct VisitedChunks(pub HashSet<IVec3>);
 
 // --- SDL2 window handle wrapper for wgpu ---
 
@@ -170,7 +170,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(SpriteData {
         registry: sprite_registry,
     });
-    resources.insert(GeneratedChunks(HashSet::new()));
+    resources.insert(VisitedChunks(HashSet::new()));
 
     resources
 }

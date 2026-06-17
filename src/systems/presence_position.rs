@@ -11,7 +11,7 @@ use crate::{
     },
     generation::chunks::{missing_chunks, CHUNK_SIZE, LOAD_RADIUS},
     world::build_asteroid_sprite_model,
-    GeneratedChunks, SpriteData,
+    SpriteData, VisitedChunks,
 };
 
 const ASTEROIDS_PER_CHUNK: u32 = 1;
@@ -22,7 +22,7 @@ const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0
 #[read_component(NewtonBody)]
 #[write_component(PresencePosition)]
 pub fn presence_position_update(
-    #[resource] generated: &mut GeneratedChunks,
+    #[resource] visited: &mut VisitedChunks,
     #[resource] gpu: &mut GpuRenderer,
     #[resource] sprite_data: &mut SpriteData,
     world: &mut SubWorld,
@@ -39,12 +39,19 @@ pub fn presence_position_update(
         }
     }
 
-    let ship_pos = match updated_pos {
-        Some(p) => p,
-        None => return,
-    };
+    if let Some(ship_pos) = updated_pos {
+        populate_chunks(ship_pos, visited, gpu, sprite_data, commands);
+    }
+}
 
-    let to_generate: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &generated.0);
+fn populate_chunks(
+    ship_pos: DVec3,
+    visited: &mut VisitedChunks,
+    gpu: &mut GpuRenderer,
+    sprite_data: &mut SpriteData,
+    commands: &mut CommandBuffer,
+) {
+    let to_generate: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &visited.0).collect();
 
     if to_generate.is_empty() {
         return;
@@ -53,7 +60,7 @@ pub fn presence_position_update(
     let mut rng = rand::rng();
     let placeholder = SpriteInstanceTransform::zeroed();
 
-    for &chunk in &to_generate {
+    for chunk in to_generate {
         let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
         for _ in 0..ASTEROIDS_PER_CHUNK {
             let chain_id = sprite_data.registry.add(build_asteroid_sprite_model());
@@ -82,6 +89,6 @@ pub fn presence_position_update(
                 },
             ));
         }
-        generated.0.insert(chunk);
+        visited.0.insert(chunk);
     }
 }
