@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use bytemuck::Zeroable;
-use glam::{DQuat, DVec3};
+use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, EntityStore, *};
 use rand::RngExt;
+use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 
 use crate::{
@@ -16,11 +17,18 @@ use crate::{
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
     world::build_asteroid_sprite_model,
-    LoadedAsteroids, SpriteData, VisitedChunks,
+    LoadedAsteroids, SpriteData, VisitedChunks, WorldSeed,
 };
 
-const ASTEROIDS_PER_CHUNK: u32 = 1;
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
+
+/// Spatial frequency of the density noise — lower = larger void/dense blobs.
+/// freq = 0.5 / desired_blob_diameter_in_chunks. At 0.03, blobs are ~16 chunks
+/// across, matching the load-sphere diameter (2 × LOAD_RADIUS = 16).
+const CHUNK_NOISE_FREQ: f32 = 0.03;
+
+/// Perlin outputs ≈ ±0.866 (theoretical max √3/2); divide by this to normalise to ±1.
+const PERLIN_MAX: f32 = 0.866;
 
 #[system]
 #[read_component(Miner)]
@@ -34,6 +42,7 @@ pub fn presence_position_update(
     #[resource] loaded: &mut LoadedAsteroids,
     #[resource] gpu: &mut GpuRenderer,
     #[resource] sprite_data: &mut SpriteData,
+    #[resource] world_seed: &WorldSeed,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -50,8 +59,24 @@ pub fn presence_position_update(
 
     if let Some(ship_pos) = updated_pos {
         update_sprites(ship_pos, loaded, gpu, sprite_data, world, commands);
-        populate_chunks(ship_pos, visited, loaded, gpu, sprite_data, commands);
+        populate_chunks(ship_pos, visited, loaded, gpu, sprite_data, commands, world_seed.0);
     }
+}
+
+fn chunk_spawn_hash(world_seed: u64, chunk: IVec3) -> f32 {
+    // Mix world seed with per-axis coords so negative and positive chunks hash distinctly.
+    let mut h = world_seed
+        .wrapping_add((chunk.x as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15))
+        .wrapping_add((chunk.y as i64 as u64).wrapping_mul(0x6c62272e07bb0142))
+        .wrapping_add((chunk.z as i64 as u64).wrapping_mul(0x4d2c6dfc5ac42aad));
+    // SplitMix64 finalizer — avalanches all bits
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94d049bb133111eb);
+    h ^= h >> 31;
+    // Top 24 bits → [0, 1)
+    (h >> 40) as f32 / 16_777_216.0
 }
 
 fn populate_chunks(
@@ -61,6 +86,7 @@ fn populate_chunks(
     gpu: &mut GpuRenderer,
     sprite_data: &mut SpriteData,
     commands: &mut CommandBuffer,
+    world_seed: u64,
 ) {
     let to_generate: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &visited.0).collect();
 
@@ -68,43 +94,59 @@ fn populate_chunks(
         return;
     }
 
+    let perlin = PerlinNoise3D::new(world_seed);
     let mut rng = rand::rng();
     let placeholder = SpriteInstanceTransform::zeroed();
 
     for chunk in to_generate {
-        let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
-        for _ in 0..ASTEROIDS_PER_CHUNK {
-            let model = build_asteroid_sprite_model();
-            let chain_id = sprite_data.registry.add(model.clone());
-            gpu.add_sprite_model(&sprite_data.registry, chain_id);
-            let slot = gpu.append_sprite_instances(
-                &sprite_data.registry,
-                &[SpriteInstance {
-                    model_id: chain_id,
-                    transform: placeholder,
-                }],
-            );
-            let angular_vel = DVec3::new(
-                (rng.random::<f64>() - 0.5) * 2.0,
-                (rng.random::<f64>() - 0.5) * 2.0,
-                (rng.random::<f64>() - 0.5) * 2.0,
-            );
-            let entity = commands.push((
-                AsteroidMarker,
-                AsteroidChainId(chain_id),
-                AsteroidModel(model),
-                SpriteId { model_id: slot },
-                NewtonBody {
-                    mass: 1.0,
-                    pos: chunk_centre,
-                    vel: DVec3::ZERO,
-                    orientation: DQuat::IDENTITY,
-                    angular_vel,
-                },
-            ));
-            loaded.0.insert(entity);
-        }
+        // Sample regional density: normalise Perlin's ±0.866 output to [0, 1].
+        let raw = perlin.sample(
+            chunk.x as f32 * CHUNK_NOISE_FREQ,
+            chunk.y as f32 * CHUNK_NOISE_FREQ,
+            chunk.z as f32 * CHUNK_NOISE_FREQ,
+        );
+        let density = ((raw / PERLIN_MAX) + 1.0) * 0.5;
+        let density = density.clamp(0.0, 1.0);
+        // Smoothstep S-curve: steepens void/dense boundaries without shifting the midpoint.
+        let density = density * density * (3.0 - 2.0 * density);
+
         visited.0.insert(chunk);
+
+        // Deterministic per-chunk spawn decision: skip if hash falls outside density.
+        if chunk_spawn_hash(world_seed, chunk) >= density {
+            continue;
+        }
+
+        let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
+        let model = build_asteroid_sprite_model();
+        let chain_id = sprite_data.registry.add(model.clone());
+        gpu.add_sprite_model(&sprite_data.registry, chain_id);
+        let slot = gpu.append_sprite_instances(
+            &sprite_data.registry,
+            &[SpriteInstance {
+                model_id: chain_id,
+                transform: placeholder,
+            }],
+        );
+        let angular_vel = DVec3::new(
+            (rng.random::<f64>() - 0.5) * 2.0,
+            (rng.random::<f64>() - 0.5) * 2.0,
+            (rng.random::<f64>() - 0.5) * 2.0,
+        );
+        let entity = commands.push((
+            AsteroidMarker,
+            AsteroidChainId(chain_id),
+            AsteroidModel(model),
+            SpriteId { model_id: slot },
+            NewtonBody {
+                mass: 1.0,
+                pos: chunk_centre,
+                vel: DVec3::ZERO,
+                orientation: DQuat::IDENTITY,
+                angular_vel,
+            },
+        ));
+        loaded.0.insert(entity);
     }
 }
 

@@ -77,6 +77,9 @@ pub struct VisitedChunks(pub HashSet<IVec3>);
 /// Set of asteroid entity IDs currently loaded within the presence area.
 pub struct LoadedAsteroids(pub HashSet<Entity>);
 
+/// Seed for all procedural world generation (chunk density noise, asteroid properties).
+pub struct WorldSeed(pub u64);
+
 // --- SDL2 window handle wrapper for wgpu ---
 
 /// Snapshot of an SDL2 window's raw handles for wgpu surface creation.
@@ -175,6 +178,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     });
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
+    resources.insert(WorldSeed(42));
 
     resources
 }
