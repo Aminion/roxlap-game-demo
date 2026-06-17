@@ -73,7 +73,7 @@ pub fn render(
     // Snapshot work time before vsync blocks inside render_scene.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
-    gpu.render_scene(&gpu_world.scene, &[world_cam], &world_cam, fov_y_rad, 128);
+    gpu.render_scene(&gpu_world.scene, &[], &world_cam, fov_y_rad, 128);
 
     // Project target_dir into screen space.
     // fov_y = 2*atan(h/w) → tan(fov_y/2) = h/w → focal_pixels = w/2.

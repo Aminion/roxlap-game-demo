@@ -1,8 +1,6 @@
 use glam::{DMat3, DQuat, DVec3};
 use legion::World;
 use rand::RngExt;
-use roxlap_cavegen::pack_dense_grid_to_vxl;
-use roxlap_formats::{edit::MAXZDIM, vxl::Vxl};
 use roxlap_gpu::{camera::Camera as GpuCamera, SpriteModel};
 
 use crate::components::{
@@ -10,37 +8,10 @@ use crate::components::{
     presence_position::PresencePosition, thruster::ThrusterBank,
 };
 
-pub const VSID: u32 = 64;
-
-/// Z-coord of the (one-voxel-thick) ground plane. Voxlap is **z-down**:
-/// small z is up, large z is down.
-pub const GROUND_Z: i32 = 200;
-
 pub const CUBE_VXL_VSID: u32 = 16;
 
 fn random_voxel_colour(rng: &mut impl rand::Rng) -> u32 {
     0x80_00_00_00 | (rng.random::<u32>() & 0x00_FF_FF_FF)
-}
-
-fn voxel_idx(x: usize, y: usize, z: usize, vsid: usize) -> usize {
-    (y * vsid + x) * MAXZDIM as usize + z
-}
-
-pub fn build_world() -> Vxl {
-    let vsid_u = VSID as usize;
-    let cells = vsid_u * vsid_u * MAXZDIM as usize;
-
-    let mut mask = vec![0u8; cells];
-    let mut colour = vec![0u32; cells];
-    let mut rng = rand::rng();
-    for y in 0..vsid_u {
-        for x in 0..vsid_u {
-            let i = voxel_idx(x, y, GROUND_Z as usize, vsid_u);
-            mask[i] = 1;
-            colour[i] = random_voxel_colour(&mut rng);
-        }
-    }
-    pack_dense_grid_to_vxl(&mask, &colour, VSID)
 }
 
 pub fn build_asteroid_sprite_model() -> SpriteModel {
@@ -95,10 +66,9 @@ pub fn populate_world(world: &mut World) {
 }
 
 const MINER_PITCH: f64 = 0.8;
-/// Lateral offset from world-center so the miner spawns clear of the cube.
 const MINER_SPAWN_OFFSET_X: f64 = 70.0;
-/// Height above the ground plane at which the miner spawns (world units).
 const MINER_SPAWN_HEIGHT: f64 = 100.0;
+
 fn miner_orientation() -> DQuat {
     let (sp, cp) = (MINER_PITCH.sin(), MINER_PITCH.cos());
     DQuat::from_mat3(&DMat3::from_cols(
@@ -115,11 +85,7 @@ pub fn miner_initial_forward() -> DVec3 {
 
 fn spawn_miner(world: &mut World) {
     let orientation = miner_orientation();
-    let pos = DVec3::new(
-        f64::from(VSID) * 0.5 - MINER_SPAWN_OFFSET_X,
-        f64::from(VSID) * 0.5,
-        f64::from(GROUND_Z) - MINER_SPAWN_HEIGHT,
-    );
+    let pos = DVec3::new(-MINER_SPAWN_OFFSET_X, 0.0, -MINER_SPAWN_HEIGHT);
     // CameraComponent is overwritten by camera_update_system before the first render,
     // so the initial values are placeholders.
     world.push((

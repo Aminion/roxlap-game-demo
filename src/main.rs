@@ -15,11 +15,8 @@ use raw_window_handle::{
     DisplayHandle, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     WindowHandle,
 };
-use roxlap_core::{update_lighting, Engine};
-use roxlap_formats::edit::MAXZDIM;
 use roxlap_gpu::{
-    decompress_chunk, GpuRenderer, GpuRendererSettings, GpuSceneResident, GridUpload, SceneUpload,
-    SpriteModelRegistry,
+    GpuRenderer, GpuRendererSettings, GpuSceneResident, SceneUpload, SpriteModelRegistry,
 };
 use sdl2::{
     event::{Event, WindowEvent},
@@ -40,7 +37,7 @@ use crate::systems::{
     render::render_system,
     thruster::thruster_system,
 };
-use crate::world::{build_world, miner_initial_forward, populate_world, VSID};
+use crate::world::{miner_initial_forward, populate_world};
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
 const INITIAL_WINDOW_HEIGHT: u32 = 720;
@@ -137,44 +134,8 @@ fn initialize() -> Result<(Window, EventPump), String> {
     Ok((window, event_pump))
 }
 
-fn build_gpu_scene(gpu: &GpuRenderer, vxl: &roxlap_formats::vxl::Vxl) -> GpuSceneResident {
-    let base_chunk = decompress_chunk(vxl);
-    let base_grid = GridUpload {
-        vsid: VSID,
-        origin_chunk: [0, 0, 0],
-        chunks_dims: [1, 1, 1],
-        pool_dims: [1, 1, 1],
-        chunks: vec![([0, 0, 0], base_chunk)],
-    };
-    GpuSceneResident::upload(
-        gpu.device(),
-        &SceneUpload {
-            grids: vec![base_grid],
-        },
-    )
-}
-
 fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let mut resources = Resources::default();
-
-    let mut engine = Engine::new();
-    engine.set_side_shades(15, 0, 8, 8, 8, 8);
-    engine.set_lightmode(1);
-
-    let mut vxl = build_world();
-    update_lighting(
-        &mut vxl.data,
-        &vxl.column_offset,
-        vxl.vsid,
-        0,
-        0,
-        0,
-        vxl.vsid as i32,
-        vxl.vsid as i32,
-        MAXZDIM,
-        engine.lightmode(),
-        engine.lights(),
-    );
 
     let gpu = GpuRenderer::new_blocking(
         handle,
@@ -187,12 +148,11 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     .expect("GPU init failed — no Vulkan/Metal/DX12 adapter?");
 
     let gpu_world = GpuWorldData {
-        scene: build_gpu_scene(&gpu, &vxl),
+        scene: GpuSceneResident::upload(gpu.device(), &SceneUpload { grids: vec![] }),
     };
 
     let sprite_registry = SpriteModelRegistry::new();
 
-    resources.insert(engine);
     resources.insert(ScreenState {
         width: INITIAL_WINDOW_WIDTH,
         height: INITIAL_WINDOW_HEIGHT,
