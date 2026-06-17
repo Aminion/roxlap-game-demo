@@ -8,8 +8,8 @@ use crate::{
     input::PlayerInput,
 };
 
-/// Proportional retro-thrust gain (s⁻¹). Terminal velocity ≈ max_lin_accel / LINEAR_DAMPING.
-const LINEAR_DAMPING: f64 = 1.5;
+/// Proportional retro-thrust/torque gain (s⁻¹). Terminal velocity ≈ max_lin_accel / DAMPING_GAIN.
+const DAMPING_GAIN: f64 = 1.5;
 const MIN_DIR_SQ: f64 = 1e-15;
 
 fn axis(inputs: &HashSet<PlayerInput>, pos: PlayerInput, neg: PlayerInput) -> f64 {
@@ -56,7 +56,7 @@ pub fn apply_linear_damping(
         return;
     }
     let vel_body = body.orientation.inverse() * body.vel;
-    bank.linear_command += -vel_body * LINEAR_DAMPING;
+    bank.linear_command += -vel_body * DAMPING_GAIN;
 }
 
 /// Write a counter-torque command opposing roll (only when TAB is held).
@@ -72,7 +72,7 @@ pub fn apply_angular_damping(
     }
     let ship_fwd = body.orientation * DVec3::NEG_Z;
     let roll_world = ship_fwd * body.angular_vel.dot(ship_fwd);
-    bank.command += body.orientation.inverse() * (-roll_world * LINEAR_DAMPING);
+    bank.command += body.orientation.inverse() * (-roll_world * DAMPING_GAIN);
 }
 
 #[system]

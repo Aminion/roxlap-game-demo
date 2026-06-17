@@ -21,7 +21,6 @@ use roxlap_gpu::{
 use sdl2::{
     event::{Event, WindowEvent},
     keyboard::Scancode,
-    mixer::InitFlag,
     video::Window,
     EventPump,
 };
@@ -116,11 +115,6 @@ fn initialize() -> Result<(Window, EventPump), String> {
     let sdl_context = sdl2::init()?;
     sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "best");
     let video_subsystem = sdl_context.video()?;
-    let _audio = sdl_context.audio()?;
-
-    let _mixer_context =
-        sdl2::mixer::init(InitFlag::MP3 | InitFlag::FLAC | InitFlag::MOD | InitFlag::OGG)?;
-    sdl2::mixer::allocate_channels(20);
 
     let window = video_subsystem
         .window(
@@ -209,7 +203,6 @@ fn fov_y(w: u32, h: u32) -> f32 {
 }
 
 fn main() {
-    //env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let (window, mut event_pump) = initialize().unwrap();
 
     let handle = Arc::new(SdlWindowHandle {

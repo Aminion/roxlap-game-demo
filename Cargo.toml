@@ -16,12 +16,11 @@ glam = "0.33.1"
 crossbeam = "0.8.4"
 rand = "0.10.1"
 log = "0.4.31"
-env_logger = "0.11.10"
 
 [dependencies.sdl2]
 version = "0.38"
 default-features = false
-features = ["mixer", "raw-window-handle"]
+features = ["raw-window-handle"]
 
 [dev-dependencies]
 proptest = "1"
