@@ -37,10 +37,11 @@ use crate::systems::{
     render::render_system,
     thruster::thruster_system,
 };
-use crate::world::{miner_initial_forward, populate_world};
+use crate::world::{generate_star_sky, miner_initial_forward, populate_world};
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
 const INITIAL_WINDOW_HEIGHT: u32 = 720;
+const WORLD_SEED: u64 = 42;
 
 pub struct ScreenState {
     pub width: u32,
@@ -143,7 +144,7 @@ fn initialize() -> Result<(Window, EventPump), String> {
 fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let mut resources = Resources::default();
 
-    let gpu = GpuRenderer::new_blocking(
+    let mut gpu = GpuRenderer::new_blocking(
         handle,
         (INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
         GpuRendererSettings {
@@ -152,6 +153,8 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
         },
     )
     .expect("GPU init failed — no Vulkan/Metal/DX12 adapter?");
+    let (sky_pixels, sky_w, sky_h) = generate_star_sky(WORLD_SEED);
+    gpu.set_sky_panorama(&sky_pixels, sky_w, sky_h);
 
     let gpu_world = GpuWorldData {
         scene: GpuSceneResident::upload(gpu.device(), &SceneUpload { grids: vec![] }),
@@ -178,7 +181,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     });
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
-    resources.insert(WorldSeed(42));
+    resources.insert(WorldSeed(WORLD_SEED));
 
     resources
 }
