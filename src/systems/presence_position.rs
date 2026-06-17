@@ -49,8 +49,7 @@ pub fn presence_position_update(
     }
 
     if let Some(ship_pos) = updated_pos {
-        deactivate_distant_sprites(ship_pos, loaded, gpu, world, commands);
-        activate_nearby_sprites(ship_pos, loaded, gpu, sprite_data, world, commands);
+        update_sprites(ship_pos, loaded, gpu, sprite_data, world, commands);
         populate_chunks(ship_pos, visited, loaded, gpu, sprite_data, commands);
     }
 }
@@ -109,134 +108,95 @@ fn populate_chunks(
     }
 }
 
-/// Remove the GPU sprite instance for every loaded asteroid that has left the presence radius.
-fn deactivate_distant_sprites(
-    ship_pos: DVec3,
-    loaded: &LoadedAsteroids,
-    gpu: &mut GpuRenderer,
-    world: &mut SubWorld,
-    commands: &mut CommandBuffer,
-) {
-    let center = world_to_chunk(ship_pos);
-    let r2 = LOAD_RADIUS * LOAD_RADIUS;
-
-    // Collect active asteroids that are now out of range.
-    let to_deactivate: Vec<Entity> = loaded
-        .0
-        .iter()
-        .copied()
-        .filter(|&entity| {
-            let Ok(entry) = world.entry_ref(entity) else {
-                return false;
-            };
-            if entry.get_component::<SpriteId>().is_err() {
-                return false; // already inactive
-            }
-            let Ok(body) = entry.get_component::<NewtonBody>() else {
-                return false;
-            };
-            let chunk = world_to_chunk(body.pos);
-            let d = chunk - center;
-            d.dot(d) > r2
-        })
-        .collect();
-
-    if to_deactivate.is_empty() {
-        return;
-    }
-
-    // Dual maps to handle swap-remove slot displacement correctly.
-    let mut slot_to_entity: HashMap<u32, Entity> = loaded
-        .0
-        .iter()
-        .copied()
-        .filter_map(|entity| {
-            world
-                .entry_ref(entity)
-                .ok()
-                .and_then(|e| e.get_component::<SpriteId>().ok().map(|s| s.model_id))
-                .map(|slot| (slot, entity))
-        })
-        .collect();
-    let mut entity_to_slot: HashMap<Entity, u32> =
-        slot_to_entity.iter().map(|(&s, &e)| (e, s)).collect();
-
-    for entity in to_deactivate {
-        let current_slot = match entity_to_slot.remove(&entity) {
-            Some(s) => s,
-            None => continue,
-        };
-        slot_to_entity.remove(&current_slot);
-
-        if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
-            if let Some(displaced_entity) = slot_to_entity.remove(&(displaced_old as u32)) {
-                entity_to_slot.insert(displaced_entity, current_slot);
-                slot_to_entity.insert(current_slot, displaced_entity);
-                if let Ok(mut entry) = world.entry_mut(displaced_entity) {
-                    if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
-                        sprite.model_id = current_slot;
-                    }
-                }
-            }
-        }
-
-        if let Ok(entry) = world.entry_ref(entity) {
-            if let Ok(chain) = entry.get_component::<AsteroidChainId>() {
-                gpu.remove_sprite_model(chain.0);
-            }
-        }
-
-        commands.remove_component::<SpriteId>(entity);
-    }
-}
-
-/// Re-add a GPU sprite instance for every loaded asteroid that has entered the presence radius
-/// but currently has no active sprite.
-fn activate_nearby_sprites(
+/// Single pass over all loaded asteroids: deactivate those that left the presence radius,
+/// activate those that entered it.
+fn update_sprites(
     ship_pos: DVec3,
     loaded: &LoadedAsteroids,
     gpu: &mut GpuRenderer,
     sprite_data: &mut SpriteData,
-    world: &SubWorld,
+    world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
+    use roxlap_gpu::SpriteModel;
+
     let center = world_to_chunk(ship_pos);
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
     let placeholder = SpriteInstanceTransform::zeroed();
 
+    let mut to_deactivate: Vec<Entity> = Vec::new();
+    let mut to_activate: Vec<(Entity, SpriteModel)> = Vec::new();
+    let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
+    let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
+
     for &entity in &loaded.0 {
-        let (in_range, model_clone) = {
-            let Ok(entry) = world.entry_ref(entity) else {
-                continue;
-            };
-            if entry.get_component::<SpriteId>().is_ok() {
-                continue; // already active
+        let Ok(entry) = world.entry_ref(entity) else {
+            continue;
+        };
+        let Ok(body) = entry.get_component::<NewtonBody>() else {
+            continue;
+        };
+        let chunk = world_to_chunk(body.pos);
+        let d = chunk - center;
+        let in_range = d.dot(d) <= r2;
+
+        if let Ok(sprite) = entry.get_component::<SpriteId>() {
+            slot_to_entity.insert(sprite.model_id, entity);
+            entity_to_slot.insert(entity, sprite.model_id);
+            if !in_range {
+                to_deactivate.push(entity);
             }
-            let Ok(body) = entry.get_component::<NewtonBody>() else {
-                continue;
-            };
+        } else if in_range {
             let Ok(asteroid_model) = entry.get_component::<AsteroidModel>() else {
                 continue;
             };
-            let chunk = world_to_chunk(body.pos);
-            let d = chunk - center;
-            (d.dot(d) <= r2, asteroid_model.0.clone())
-        };
-
-        if !in_range {
-            continue;
+            to_activate.push((entity, asteroid_model.0.clone()));
         }
+    }
 
-        let new_chain_id = sprite_data.registry.add(model_clone);
-        gpu.add_sprite_model(&sprite_data.registry, new_chain_id);
-        let slot = gpu.append_sprite_instances(
-            &sprite_data.registry,
-            &[SpriteInstance {
-                model_id: new_chain_id,
-                transform: placeholder,
-            }],
-        );
-        commands.add_component(entity, AsteroidChainId(new_chain_id));
-        commands.add_component(entity, SpriteId { model_id: slot });
+    if !to_deactivate.is_empty() {
+        for entity in to_deactivate {
+            let current_slot = match entity_to_slot.remove(&entity) {
+                Some(s) => s,
+                None => continue,
+            };
+            slot_to_entity.remove(&current_slot);
+
+            if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
+                if let Some(displaced_entity) = slot_to_entity.remove(&(displaced_old as u32)) {
+                    entity_to_slot.insert(displaced_entity, current_slot);
+                    slot_to_entity.insert(current_slot, displaced_entity);
+                    if let Ok(mut entry) = world.entry_mut(displaced_entity) {
+                        if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
+                            sprite.model_id = current_slot;
+                        }
+                    }
+                }
+            }
+
+            if let Ok(entry) = world.entry_ref(entity) {
+                if let Ok(chain) = entry.get_component::<AsteroidChainId>() {
+                    gpu.remove_sprite_model(chain.0);
+                }
+            }
+
+            commands.remove_component::<SpriteId>(entity);
+        }
+    }
+
+    if !to_activate.is_empty() {
+        for (entity, model_clone) in to_activate {
+            let new_chain_id = sprite_data.registry.add(model_clone);
+            gpu.add_sprite_model(&sprite_data.registry, new_chain_id);
+            let slot = gpu.append_sprite_instances(
+                &sprite_data.registry,
+                &[SpriteInstance {
+                    model_id: new_chain_id,
+                    transform: placeholder,
+                }],
+            );
+            commands.add_component(entity, AsteroidChainId(new_chain_id));
+            commands.add_component(entity, SpriteId { model_id: slot });
+        }
     }
 }
