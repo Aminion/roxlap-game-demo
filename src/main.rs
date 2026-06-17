@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use glam::{DVec3, IVec3, Vec2};
-use legion::{Resources, Schedule, World};
+use legion::{Entity, Resources, Schedule, World};
 use raw_window_handle::{
     DisplayHandle, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     WindowHandle,
@@ -73,6 +73,9 @@ pub struct SpriteData {
 
 /// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
 pub struct VisitedChunks(pub HashSet<IVec3>);
+
+/// Set of asteroid entity IDs currently loaded within the presence area.
+pub struct LoadedAsteroids(pub HashSet<Entity>);
 
 // --- SDL2 window handle wrapper for wgpu ---
 
@@ -171,6 +174,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
         registry: sprite_registry,
     });
     resources.insert(VisitedChunks(HashSet::new()));
+    resources.insert(LoadedAsteroids(HashSet::new()));
 
     resources
 }
