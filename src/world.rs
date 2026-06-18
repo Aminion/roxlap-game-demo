@@ -105,6 +105,7 @@ pub fn build_asteroid_sprite_model() -> SpriteModel {
     let mut colors: Vec<u32> = Vec::new();
     let mut dirs: Vec<u32> = Vec::new();
 
+    let inner_r2 = (radius * 0.5) * (radius * 0.5);
     let mut rng = rand::rng();
     for y in 0..vsid {
         for x in 0..vsid {
@@ -114,9 +115,15 @@ pub fn build_asteroid_sprite_model() -> SpriteModel {
                 let dx = x as f64 + 0.5 - center;
                 let dy = y as f64 + 0.5 - center;
                 let dz = z as f64 + 0.5 - center;
-                if dx * dx + dy * dy + dz * dz <= radius * radius {
+                let d2 = dx * dx + dy * dy + dz * dz;
+                if d2 <= radius * radius {
                     occupancy[col * occ_words_per_col as usize + z / 32] |= 1u32 << (z % 32);
-                    colors.push(random_voxel_colour(&mut rng));
+                    let color = if d2 <= inner_r2 {
+                        0x80_C0_30_30 // red ore core — same count in every asteroid
+                    } else {
+                        random_voxel_colour(&mut rng)
+                    };
+                    colors.push(color);
                     dirs.push(0);
                 }
             }

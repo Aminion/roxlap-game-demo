@@ -13,9 +13,18 @@ use crate::{
     Dt, LoadedAsteroids, SpriteData,
 };
 
+/// Voxel radius of the crater carved on each hit.
+const HIT_CARVE_RADIUS: u32 = 4;
+
+/// Scales raw projectile momentum (mass × speed) into effective impulse.
+/// Keeps the direction physics-correct while tuning the magnitude for
+/// feel — without it a 0.001 kg bullet hitting a 1 kg asteroid barely
+/// nudges it.
+const HIT_IMPULSE_FACTOR: f64 = 5.0;
+
 #[system]
 #[write_component(Projectile)]
-#[read_component(NewtonBody)]
+#[write_component(NewtonBody)]
 #[read_component(Aabb)]
 #[read_component(AsteroidChainId)]
 #[write_component(SpriteId)]
@@ -25,12 +34,14 @@ pub fn projectile(
     #[resource] dt: &Dt,
     #[resource] gpu: &mut GpuRenderer,
     #[resource] loaded: &mut LoadedAsteroids,
-    #[resource] sprite_data: &SpriteData,
+    #[resource] sprite_data: &mut SpriteData,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
         entity: Entity,
         pos: DVec3,
+        vel: DVec3,
+        mass: f64,
         lifetime: f64,
         chain_id: u32,
         slot: u32,
@@ -43,6 +54,8 @@ pub fn projectile(
             projectiles.push(ProjState {
                 entity: *entity,
                 pos: body.pos,
+                vel: body.vel,
+                mass: body.mass,
                 lifetime: proj.lifetime,
                 chain_id: proj.chain_id,
                 slot: sprite.model_id,
@@ -54,8 +67,11 @@ pub fn projectile(
     struct AstState {
         entity: Entity,
         pos: DVec3,
+        vel: DVec3,
+        angular_vel: DVec3,
         orientation: DQuat,
         half_extent: f32,
+        mass: f64,
         chain_id: u32,
         slot: u32,
     }
@@ -79,16 +95,32 @@ pub fn projectile(
         asteroids.push(AstState {
             entity,
             pos: body.pos,
+            vel: body.vel,
+            angular_vel: body.angular_vel,
             orientation: body.orientation,
             half_extent: aabb.half_extent,
+            mass: body.mass,
             chain_id: chain.0,
             slot: sprite.model_id,
         });
     }
 
     // Determine which projectiles expire or hit an asteroid.
+    struct HitData {
+        ast_entity: Entity,
+        ast_chain_id: u32,
+        ast_pos: DVec3,
+        ast_vel: DVec3,
+        ast_angular_vel: DVec3,
+        ast_mass: f64,
+        ast_orientation: DQuat,
+        ast_half_extent: f32,
+        hit_voxel: (u32, u32, u32),
+        proj_vel: DVec3,
+        proj_mass: f64,
+    }
     let mut proj_to_remove: Vec<(Entity, u32, u32)> = Vec::new(); // (entity, chain_id, slot)
-    let mut ast_to_remove: Vec<Entity> = Vec::new();
+    let mut ast_hits: Vec<HitData> = Vec::new();
 
     for p in &projectiles {
         if p.lifetime <= 0.0 {
@@ -103,17 +135,29 @@ pub fn projectile(
             } else {
                 None
             };
-            if hit_voxel.is_some() {
+            if let Some(hit_voxel) = hit_voxel {
                 proj_to_remove.push((p.entity, p.chain_id, p.slot));
-                if !ast_to_remove.contains(&a.entity) {
-                    ast_to_remove.push(a.entity);
+                if !ast_hits.iter().any(|h| h.ast_entity == a.entity) {
+                    ast_hits.push(HitData {
+                        ast_entity: a.entity,
+                        ast_chain_id: a.chain_id,
+                        ast_pos: a.pos,
+                        ast_vel: a.vel,
+                        ast_angular_vel: a.angular_vel,
+                        ast_mass: a.mass,
+                        ast_orientation: a.orientation,
+                        ast_half_extent: a.half_extent,
+                        hit_voxel,
+                        proj_vel: p.vel,
+                        proj_mass: p.mass,
+                    });
                 }
                 break;
             }
         }
     }
 
-    if proj_to_remove.is_empty() && ast_to_remove.is_empty() {
+    if proj_to_remove.is_empty() && ast_hits.is_empty() {
         return;
     }
 
@@ -152,28 +196,83 @@ pub fn projectile(
         commands.remove(*proj_entity);
     }
 
-    // Despawn hit asteroids.
-    for ast_entity in ast_to_remove {
-        let chain_id = {
-            let Ok(entry) = world.entry_ref(ast_entity) else {
-                continue;
-            };
-            let Ok(chain) = entry.get_component::<AsteroidChainId>() else {
-                continue;
-            };
-            chain.0
+    // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
+    for hit in ast_hits {
+        let (vx, vy, vz) = hit.hit_voxel;
+        let (pivot, dims) = {
+            let m = sprite_data.registry.model(hit.ast_chain_id);
+            (m.pivot, m.dims)
         };
 
-        perform_despawn(
-            ast_entity,
-            chain_id,
-            &mut slot_to_entity,
-            &mut entity_to_slot,
-            world,
-            commands,
-            gpu,
-            loaded,
-        );
+        // Carve a sphere of HIT_CARVE_RADIUS centred on the hit voxel.
+        let empty = {
+            let model = sprite_data.registry.model_mut(hit.ast_chain_id);
+            let r = HIT_CARVE_RADIUS as i32;
+            for dz in -r..=r {
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        if dx * dx + dy * dy + dz * dz > r * r {
+                            continue;
+                        }
+                        let (cx, cy, cz) = (vx as i32 + dx, vy as i32 + dy, vz as i32 + dz);
+                        if cx >= 0
+                            && cy >= 0
+                            && cz >= 0
+                            && cx < dims[0] as i32
+                            && cy < dims[1] as i32
+                            && cz < dims[2] as i32
+                        {
+                            model.set_voxel(cx as u32, cy as u32, cz as u32, None);
+                        }
+                    }
+                }
+            }
+            model.colors.is_empty()
+        };
+
+        // Re-upload the edited model to the GPU.
+        gpu.update_sprite_model(&sprite_data.registry, hit.ast_chain_id);
+
+        if empty {
+            // Nothing left — fully despawn.
+            perform_despawn(
+                hit.ast_entity,
+                hit.ast_chain_id,
+                &mut slot_to_entity,
+                &mut entity_to_slot,
+                world,
+                commands,
+                gpu,
+                loaded,
+            );
+        } else {
+            // Apply linear and angular impulse from the projectile hit.
+            //
+            // effective_impulse = proj_mass × proj_vel × HIT_IMPULSE_FACTOR
+            // delta_vel         = effective_impulse / ast_mass
+            // lever             = world-space vector from asteroid centre to hit voxel
+            // delta_omega       = lever × effective_impulse / moment_of_inertia
+            //   (moment of inertia for a solid sphere ≈ 2/5 × mass × radius²)
+            let hit_local = DVec3::new(
+                vx as f64 + 0.5 - pivot[0] as f64,
+                vy as f64 + 0.5 - pivot[1] as f64,
+                vz as f64 + 0.5 - pivot[2] as f64,
+            );
+            let lever = hit.ast_orientation * hit_local; // world space
+            let effective_impulse =
+                hit.proj_vel * (hit.proj_mass as f64) * HIT_IMPULSE_FACTOR;
+            let delta_vel = effective_impulse / hit.ast_mass as f64;
+            let radius = hit.ast_half_extent as f64;
+            let moment = 0.4 * hit.ast_mass as f64 * radius * radius;
+            let delta_omega = lever.cross(effective_impulse) / moment;
+
+            if let Ok(mut entry) = world.entry_mut(hit.ast_entity) {
+                if let Ok(body) = entry.get_component_mut::<NewtonBody>() {
+                    body.vel += delta_vel;
+                    body.angular_vel += delta_omega;
+                }
+            }
+        }
     }
 }
 
