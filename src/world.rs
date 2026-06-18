@@ -184,7 +184,7 @@ fn spawn_miner(world: &mut World) {
         // Infinity forces the distance check to fire on frame 1, generating the initial chunks.
         PresencePosition(DVec3::splat(f64::INFINITY)),
         Canon {
-            pressed: false,
+            firing: false,
             cooldown: 0.0,
         },
     ));

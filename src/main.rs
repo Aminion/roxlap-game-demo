@@ -270,7 +270,7 @@ fn main() {
                 } => {
                     let mut q = <(&Miner, &mut Canon)>::query();
                     for (_, canon) in q.iter_mut(&mut world) {
-                        canon.pressed = true;
+                        canon.firing = true;
                     }
                 }
                 Event::MouseButtonUp {
@@ -279,7 +279,7 @@ fn main() {
                 } => {
                     let mut q = <(&Miner, &mut Canon)>::query();
                     for (_, canon) in q.iter_mut(&mut world) {
-                        canon.pressed = false;
+                        canon.firing = false;
                     }
                 }
                 Event::MouseMotion { xrel, yrel, .. } => {

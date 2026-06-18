@@ -35,7 +35,7 @@ pub fn shooting(
         let Some((_, body, canon)) = miner_q.iter_mut(world).next() else {
             return;
         };
-        if !canon.pressed || canon.cooldown > 0.0 {
+        if !canon.firing || canon.cooldown > 0.0 {
             return;
         }
         let ray_origin = body.pos;

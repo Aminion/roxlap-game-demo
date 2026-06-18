@@ -1,4 +1,4 @@
 pub struct Canon {
-    pub pressed: bool,
+    pub firing: bool,
     pub cooldown: f64,
 }
