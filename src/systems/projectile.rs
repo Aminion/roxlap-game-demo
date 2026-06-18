@@ -9,9 +9,8 @@ use crate::{
         aabb::Aabb, asteroid::AsteroidChainId, newton_body::NewtonBody, projectile::Projectile,
         sprite_id::SpriteId,
     },
-    generation::chunks::world_to_chunk,
     systems::presence_position::perform_despawn,
-    Dt, LoadedAsteroids, VisitedChunks,
+    Dt, LoadedAsteroids,
 };
 
 #[system]
@@ -26,7 +25,6 @@ pub fn projectile(
     #[resource] dt: &Dt,
     #[resource] gpu: &mut GpuRenderer,
     #[resource] loaded: &mut LoadedAsteroids,
-    #[resource] visited: &mut VisitedChunks,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -148,22 +146,18 @@ pub fn projectile(
 
     // Despawn hit asteroids.
     for ast_entity in ast_to_remove {
-        let (chunk, chain_id) = {
+        let chain_id = {
             let Ok(entry) = world.entry_ref(ast_entity) else {
-                continue;
-            };
-            let Ok(body) = entry.get_component::<NewtonBody>() else {
                 continue;
             };
             let Ok(chain) = entry.get_component::<AsteroidChainId>() else {
                 continue;
             };
-            (world_to_chunk(body.pos), chain.0)
+            chain.0
         };
 
         perform_despawn(
             ast_entity,
-            chunk,
             chain_id,
             &mut slot_to_entity,
             &mut entity_to_slot,
@@ -171,7 +165,6 @@ pub fn projectile(
             commands,
             gpu,
             loaded,
-            visited,
         );
     }
 }
