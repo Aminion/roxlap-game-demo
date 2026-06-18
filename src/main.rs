@@ -36,6 +36,7 @@ use crate::systems::{
     newton_body::newton_body_system,
     performance_info::{update_info_system, PerformanceInfo},
     presence_position::presence_position_update_system,
+    projectile::projectile_system,
     render::render_system,
     shooting::shooting_system,
     thruster::thruster_system,
@@ -198,6 +199,7 @@ fn build_schedule() -> Schedule {
         // queries them; prevents stale SpriteId slots if a despawn displaces a just-spawned entity.
         .flush()
         .add_system(shooting_system())
+        .add_system(projectile_system())
         // Flush so despawned entities are removed before render.
         .flush()
         .add_thread_local(render_system())

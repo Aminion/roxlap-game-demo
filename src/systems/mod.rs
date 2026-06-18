@@ -5,6 +5,7 @@ pub mod miner_input;
 pub mod newton_body;
 pub mod performance_info;
 pub mod presence_position;
+pub mod projectile;
 pub mod render;
 pub mod shooting;
 pub mod thruster;

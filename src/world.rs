@@ -136,6 +136,19 @@ pub fn build_asteroid_sprite_model() -> SpriteModel {
     }
 }
 
+pub fn build_projectile_sprite_model() -> SpriteModel {
+    SpriteModel {
+        dims: [1, 1, 1],
+        occ_words_per_col: 1,
+        pivot: [0.5, 0.5, 0.5],
+        occupancy: vec![1u32],
+        color_offsets: vec![0u32, 1u32],
+        colors: vec![0x80_FF_00_FF],
+        dirs: vec![0u32],
+        voxel_world_size: 1.0,
+    }
+}
+
 pub fn populate_world(world: &mut World) {
     spawn_miner(world);
 }

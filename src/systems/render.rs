@@ -6,9 +6,7 @@ use roxlap_gpu::{
 };
 
 use crate::{
-    components::{
-        camera::CameraComponent, newton_body::NewtonBody, sprite_id::SpriteId,
-    },
+    components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::SpriteId},
     systems::performance_info::PerformanceInfo,
     AutopilotTarget, GpuWorldData, ScreenState,
 };
