@@ -9,6 +9,7 @@ use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 
 use crate::{
     components::{
+        aabb::Aabb,
         asteroid::{AsteroidChainId, AsteroidMarker},
         miner::Miner,
         newton_body::NewtonBody,
@@ -16,7 +17,7 @@ use crate::{
         sprite_id::SpriteId,
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
-    world::build_asteroid_sprite_model,
+    world::{build_asteroid_sprite_model, CUBE_VXL_VSID},
     LoadedAsteroids, SpriteData, VisitedChunks, WorldSeed,
 };
 
@@ -142,6 +143,9 @@ fn populate_chunks(
         let entity = commands.push((
             AsteroidMarker,
             AsteroidChainId(chain_id),
+            Aabb {
+                half_extent: CUBE_VXL_VSID as f32 / 2.0,
+            },
             SpriteId { model_id: slot },
             NewtonBody {
                 mass: 1.0,
@@ -169,6 +173,50 @@ fn apply_swap_remove(
     Some(displaced_entity)
 }
 
+/// Remove a single asteroid entity from the GPU, ECS, and all bookkeeping structures.
+///
+/// `slot_to_entity` / `entity_to_slot` must cover every currently-loaded asteroid before
+/// the first call in a batch; they are updated in-place for each removal so sequential
+/// calls within the same batch stay consistent.
+pub fn perform_despawn(
+    entity: Entity,
+    chunk: IVec3,
+    chain_id: u32,
+    slot_to_entity: &mut HashMap<u32, Entity>,
+    entity_to_slot: &mut HashMap<Entity, u32>,
+    world: &mut SubWorld,
+    commands: &mut CommandBuffer,
+    gpu: &mut GpuRenderer,
+    loaded: &mut LoadedAsteroids,
+    visited: &mut VisitedChunks,
+) {
+    let current_slot = match entity_to_slot.remove(&entity) {
+        Some(s) => s,
+        None => return,
+    };
+    slot_to_entity.remove(&current_slot);
+
+    if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
+        if let Some(displaced_entity) = apply_swap_remove(
+            current_slot,
+            displaced_old as u32,
+            slot_to_entity,
+            entity_to_slot,
+        ) {
+            if let Ok(mut entry) = world.entry_mut(displaced_entity) {
+                if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
+                    sprite.model_id = current_slot;
+                }
+            }
+        }
+    }
+
+    gpu.remove_sprite_model(chain_id);
+    visited.0.remove(&chunk);
+    loaded.0.remove(&entity);
+    commands.remove(entity);
+}
+
 /// Single pass over all loaded asteroids: fully despawn those that left the presence radius.
 fn update_sprites(
     ship_pos: DVec3,
@@ -181,7 +229,7 @@ fn update_sprites(
     let center = world_to_chunk(ship_pos);
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
 
-    let mut to_unload: Vec<(Entity, IVec3)> = Vec::new();
+    let mut to_unload: Vec<(Entity, IVec3, u32)> = Vec::new();
     let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
     let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
 
@@ -198,44 +246,29 @@ fn update_sprites(
         let Ok(sprite) = entry.get_component::<SpriteId>() else {
             continue;
         };
+        let Ok(chain) = entry.get_component::<AsteroidChainId>() else {
+            continue;
+        };
         slot_to_entity.insert(sprite.model_id, entity);
         entity_to_slot.insert(entity, sprite.model_id);
         if d.dot(d) > r2 {
-            to_unload.push((entity, chunk));
+            to_unload.push((entity, chunk, chain.0));
         }
     }
 
-    for (entity, chunk) in to_unload {
-        let current_slot = match entity_to_slot.remove(&entity) {
-            Some(s) => s,
-            None => continue,
-        };
-        slot_to_entity.remove(&current_slot);
-
-        if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
-            if let Some(displaced_entity) = apply_swap_remove(
-                current_slot,
-                displaced_old as u32,
-                &mut slot_to_entity,
-                &mut entity_to_slot,
-            ) {
-                if let Ok(mut entry) = world.entry_mut(displaced_entity) {
-                    if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
-                        sprite.model_id = current_slot;
-                    }
-                }
-            }
-        }
-
-        if let Ok(entry) = world.entry_ref(entity) {
-            if let Ok(chain) = entry.get_component::<AsteroidChainId>() {
-                gpu.remove_sprite_model(chain.0);
-            }
-        }
-
-        visited.0.remove(&chunk);
-        loaded.0.remove(&entity);
-        commands.remove(entity);
+    for (entity, chunk, chain_id) in to_unload {
+        perform_despawn(
+            entity,
+            chunk,
+            chain_id,
+            &mut slot_to_entity,
+            &mut entity_to_slot,
+            world,
+            commands,
+            gpu,
+            loaded,
+            visited,
+        );
     }
 }
 

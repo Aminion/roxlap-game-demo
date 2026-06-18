@@ -6,7 +6,7 @@ use rand::{rngs::StdRng, RngExt, SeedableRng};
 use roxlap_gpu::{camera::Camera as GpuCamera, SpriteModel};
 
 use crate::components::{
-    camera::CameraComponent, miner::Miner, newton_body::NewtonBody,
+    camera::CameraComponent, canon::Canon, miner::Miner, newton_body::NewtonBody,
     presence_position::PresencePosition, thruster::ThrusterBank,
 };
 
@@ -183,5 +183,9 @@ fn spawn_miner(world: &mut World) {
         ThrusterBank::new(1.0, 1.0, 0.6, 5.0),
         // Infinity forces the distance check to fire on frame 1, generating the initial chunks.
         PresencePosition(DVec3::splat(f64::INFINITY)),
+        Canon {
+            pressed: false,
+            cooldown: 0.0,
+        },
     ));
 }

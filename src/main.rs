@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use glam::{DVec3, IVec3, Vec2};
-use legion::{Entity, Resources, Schedule, World};
+use legion::{Resources, Schedule, World, *};
 use raw_window_handle::{
     DisplayHandle, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     WindowHandle,
@@ -21,19 +21,23 @@ use roxlap_gpu::{
 use sdl2::{
     event::{Event, WindowEvent},
     keyboard::Scancode,
+    mouse::MouseButton,
     video::Window,
     EventPump,
 };
 
+use crate::components::{canon::Canon, miner::Miner};
 use crate::input::PlayerInput;
 use crate::systems::{
     autopilot::autopilot_system,
     camera::camera_update_system,
+    canon_cooldown::canon_cooldown_system,
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     performance_info::{update_info_system, PerformanceInfo},
     presence_position::presence_position_update_system,
     render::render_system,
+    shooting::shooting_system,
     thruster::thruster_system,
 };
 use crate::world::{generate_star_sky, miner_initial_forward, populate_world};
@@ -188,11 +192,13 @@ fn build_schedule() -> Schedule {
         .add_system(autopilot_system())
         .add_system(thruster_system())
         .add_system(newton_body_system())
+        .add_system(canon_cooldown_system())
         .add_system(presence_position_update_system())
-        // Flush command buffer so newly-spawned asteroid entities are visible
-        // to the render system in the same frame. Without this, legion defers
-        // `commands.push(...)` until after the thread-local render, causing
-        // freshly-generated asteroids to flash a degenerate quad at the origin.
+        // Flush so newly-spawned asteroid entities are in the world before shooting
+        // queries them; prevents stale SpriteId slots if a despawn displaces a just-spawned entity.
+        .flush()
+        .add_system(shooting_system())
+        // Flush so despawned entities are removed before render.
         .flush()
         .add_thread_local(render_system())
         .build()
@@ -256,6 +262,24 @@ fn main() {
                             .get_mut::<HashSet<PlayerInput>>()
                             .unwrap()
                             .remove(&input);
+                    }
+                }
+                Event::MouseButtonDown {
+                    mouse_btn: MouseButton::Left,
+                    ..
+                } => {
+                    let mut q = <(&Miner, &mut Canon)>::query();
+                    for (_, canon) in q.iter_mut(&mut world) {
+                        canon.pressed = true;
+                    }
+                }
+                Event::MouseButtonUp {
+                    mouse_btn: MouseButton::Left,
+                    ..
+                } => {
+                    let mut q = <(&Miner, &mut Canon)>::query();
+                    for (_, canon) in q.iter_mut(&mut world) {
+                        canon.pressed = false;
                     }
                 }
                 Event::MouseMotion { xrel, yrel, .. } => {
