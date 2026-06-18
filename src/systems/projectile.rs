@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use glam::DVec3;
+use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
-use roxlap_gpu::GpuRenderer;
+use roxlap_gpu::{GpuRenderer, SpriteModel};
 
 use crate::{
     components::{
@@ -10,7 +10,7 @@ use crate::{
         sprite_id::SpriteId,
     },
     systems::presence_position::perform_despawn,
-    Dt, LoadedAsteroids,
+    Dt, LoadedAsteroids, SpriteData,
 };
 
 #[system]
@@ -25,6 +25,7 @@ pub fn projectile(
     #[resource] dt: &Dt,
     #[resource] gpu: &mut GpuRenderer,
     #[resource] loaded: &mut LoadedAsteroids,
+    #[resource] sprite_data: &SpriteData,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -53,6 +54,7 @@ pub fn projectile(
     struct AstState {
         entity: Entity,
         pos: DVec3,
+        orientation: DQuat,
         half_extent: f32,
         chain_id: u32,
         slot: u32,
@@ -77,6 +79,7 @@ pub fn projectile(
         asteroids.push(AstState {
             entity,
             pos: body.pos,
+            orientation: body.orientation,
             half_extent: aabb.half_extent,
             chain_id: chain.0,
             slot: sprite.model_id,
@@ -95,7 +98,12 @@ pub fn projectile(
         for a in &asteroids {
             let h = (a.half_extent + 0.5) as f64;
             let d = p.pos - a.pos;
-            if d.x.abs() <= h && d.y.abs() <= h && d.z.abs() <= h {
+            let hit_voxel = if d.x.abs() <= h && d.y.abs() <= h && d.z.abs() <= h {
+                voxel_hit(p.pos, a.pos, a.orientation, sprite_data.registry.model(a.chain_id))
+            } else {
+                None
+            };
+            if hit_voxel.is_some() {
                 proj_to_remove.push((p.entity, p.chain_id, p.slot));
                 if !ast_to_remove.contains(&a.entity) {
                     ast_to_remove.push(a.entity);
@@ -165,6 +173,113 @@ pub fn projectile(
             commands,
             gpu,
             loaded,
+        );
+    }
+}
+
+/// Returns the model-local voxel coordinates `(x, y, z)` of the hit, or `None`.
+///
+/// Point test only — a fast-moving projectile may tunnel through thin geometry
+/// between frames if it skips more than one voxel per frame.
+fn voxel_hit(
+    proj_pos: DVec3,
+    ast_pos: DVec3,
+    ast_orientation: DQuat,
+    model: &SpriteModel,
+) -> Option<(u32, u32, u32)> {
+    let local = ast_orientation.inverse() * (proj_pos - ast_pos);
+    let vx = (local.x / model.voxel_world_size as f64 + model.pivot[0] as f64).floor() as i64;
+    let vy = (local.y / model.voxel_world_size as f64 + model.pivot[1] as f64).floor() as i64;
+    let vz = (local.z / model.voxel_world_size as f64 + model.pivot[2] as f64).floor() as i64;
+    if vx < 0
+        || vy < 0
+        || vz < 0
+        || vx >= model.dims[0] as i64
+        || vy >= model.dims[1] as i64
+        || vz >= model.dims[2] as i64
+    {
+        return None;
+    }
+    let (vx, vy, vz) = (vx as u32, vy as u32, vz as u32);
+    let col = (vx + vy * model.dims[0]) as usize;
+    let base = col * model.occ_words_per_col as usize;
+    let occupied = (model.occupancy[base + vz as usize / 32] >> (vz % 32)) & 1 == 1;
+    occupied.then_some((vx, vy, vz))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::voxel_hit;
+    use glam::{DQuat, DVec3};
+    use roxlap_gpu::SpriteModel;
+    use std::f64::consts::FRAC_PI_2;
+
+    /// 3×1×1 model with only voxel (2, 0, 0) occupied.
+    /// pivot = (1.5, 0.5, 0.5) — geometric centre.
+    fn make_3x1x1() -> SpriteModel {
+        // column = x + y*mx; 3 columns, 1 occ word each
+        let mut occupancy = vec![0u32; 3];
+        occupancy[2] = 1u32; // col 2, bit 0 → voxel (2, 0, 0)
+        SpriteModel {
+            dims: [3, 1, 1],
+            occ_words_per_col: 1,
+            pivot: [1.5, 0.5, 0.5],
+            occupancy,
+            colors: vec![0xFF_FF_FF_FF],
+            dirs: vec![0],
+            color_offsets: vec![0, 0, 0, 1],
+            voxel_world_size: 1.0,
+        }
+    }
+
+    #[test]
+    fn hit_occupied_voxel_identity() {
+        // Voxel (2,0,0) center in model space = (2.5, 0.5, 0.5).
+        // World offset from pivot = (2.5-1.5, 0, 0) = (1, 0, 0).
+        assert_eq!(
+            voxel_hit(DVec3::new(1.0, 0.0, 0.0), DVec3::ZERO, DQuat::IDENTITY, &make_3x1x1()),
+            Some((2, 0, 0))
+        );
+    }
+
+    #[test]
+    fn miss_empty_voxel_identity() {
+        // Voxel (0,0,0) is empty. Its world offset from pivot = (0.5-1.5, 0, 0) = (-1, 0, 0).
+        assert_eq!(
+            voxel_hit(DVec3::new(-1.0, 0.0, 0.0), DVec3::ZERO, DQuat::IDENTITY, &make_3x1x1()),
+            None
+        );
+    }
+
+    #[test]
+    fn hit_rotated_90_degrees_y() {
+        // rotation_y(π/2) maps model +X → world -Z.
+        // Voxel (2,0,0) body-local offset from pivot = (1, 0, 0).
+        // World offset = rotation_y(π/2) * (1,0,0) ≈ (0, 0, -1).
+        let rot = DQuat::from_rotation_y(FRAC_PI_2);
+        assert_eq!(
+            voxel_hit(DVec3::new(0.0, 0.0, -1.0), DVec3::ZERO, rot, &make_3x1x1()),
+            Some((2, 0, 0))
+        );
+    }
+
+    #[test]
+    fn miss_wrong_axis_after_rotation() {
+        // If we incorrectly applied `orientation * ...` instead of `inverse() * ...`,
+        // (1,0,0) in world would map into the occupied voxel. With the correct
+        // `inverse()`, (1,0,0) lands in z=1 which is out of bounds.
+        let rot = DQuat::from_rotation_y(FRAC_PI_2);
+        assert_eq!(
+            voxel_hit(DVec3::new(1.0, 0.0, 0.0), DVec3::ZERO, rot, &make_3x1x1()),
+            None
+        );
+    }
+
+    #[test]
+    fn miss_out_of_bounds() {
+        assert_eq!(
+            voxel_hit(DVec3::new(10.0, 0.0, 0.0), DVec3::ZERO, DQuat::IDENTITY, &make_3x1x1()),
+            None
         );
     }
 }
