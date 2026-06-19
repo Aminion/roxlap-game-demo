@@ -124,10 +124,12 @@ fn draw_hud(
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .interactable(false)
             .show(ctx, |ui| {
-                ui.colored_label(
-                    egui::Color32::CYAN,
-                    format!("ENERGY  {:.0} / {:.0}", energy.current, energy.max),
-                );
+                let color = if energy.current < 1.0 {
+                    egui::Color32::RED
+                } else {
+                    egui::Color32::CYAN
+                };
+                ui.colored_label(color, format!("ENERGY  {:.0}", energy.current));
             });
 
         let center = egui::pos2(half.x, half.y);

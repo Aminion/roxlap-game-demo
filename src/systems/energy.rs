@@ -7,12 +7,11 @@ use crate::{
 
 pub struct Energy {
     pub current: f64,
-    pub max: f64,
 }
 
 impl Energy {
-    pub fn new(max: f64) -> Self {
-        Self { current: max, max }
+    pub fn new(initial: f64) -> Self {
+        Self { current: initial }
     }
 }
 
@@ -39,6 +38,6 @@ pub fn energy(world: &SubWorld, #[resource] energy: &mut Energy, #[resource] dt:
         .any(|(_, body)| body.pos.distance(miner_pos) <= CRYSTAL_REGEN_DIST);
 
     if near_crystal {
-        energy.current = (energy.current + CRYSTAL_REGEN_RATE * dt.0).min(energy.max);
+        energy.current += CRYSTAL_REGEN_RATE * dt.0;
     }
 }
