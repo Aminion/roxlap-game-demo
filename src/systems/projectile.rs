@@ -1,15 +1,23 @@
 use std::collections::HashMap;
 
+use bytemuck::Zeroable;
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
-use roxlap_gpu::{GpuRenderer, SpriteModel};
+use rand::RngExt;
+use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel};
 
 use crate::{
     components::{
-        aabb::Aabb, asteroid::AsteroidChainId, newton_body::NewtonBody, projectile::Projectile,
+        aabb::Aabb,
+        asteroid::{
+            AsteroidChainId, AsteroidMinerals, AsteroidVoxelInfo, CrystalChainId, CrystalMarker,
+        },
+        newton_body::NewtonBody,
+        projectile::Projectile,
         sprite_id::SpriteId,
     },
     systems::presence_position::perform_despawn,
+    world::build_crystal_sprite_model,
     Dt, LoadedAsteroids, SpriteData,
 };
 
@@ -27,6 +35,8 @@ const HIT_IMPULSE_FACTOR: f64 = 5.0;
 #[write_component(NewtonBody)]
 #[read_component(Aabb)]
 #[read_component(AsteroidChainId)]
+#[read_component(AsteroidVoxelInfo)]
+#[write_component(AsteroidMinerals)]
 #[write_component(SpriteId)]
 pub fn projectile(
     world: &mut SubWorld,
@@ -74,6 +84,8 @@ pub fn projectile(
         mass: f64,
         chain_id: u32,
         slot: u32,
+        minerals: Vec<[u32; 3]>,
+        initial_voxel_count: u32,
     }
     let mut asteroids: Vec<AstState> = Vec::new();
     for &entity in &loaded.0 {
@@ -92,6 +104,14 @@ pub fn projectile(
         let Ok(sprite) = entry.get_component::<SpriteId>() else {
             continue;
         };
+        let minerals = entry
+            .get_component::<AsteroidMinerals>()
+            .map(|m| m.points.clone())
+            .unwrap_or_default();
+        let initial_voxel_count = entry
+            .get_component::<AsteroidVoxelInfo>()
+            .map(|v| v.initial_count)
+            .unwrap_or(0);
         asteroids.push(AstState {
             entity,
             pos: body.pos,
@@ -102,6 +122,8 @@ pub fn projectile(
             mass: body.mass,
             chain_id: chain.0,
             slot: sprite.model_id,
+            minerals,
+            initial_voxel_count,
         });
     }
 
@@ -118,6 +140,8 @@ pub fn projectile(
         hit_voxel: (u32, u32, u32),
         proj_vel: DVec3,
         proj_mass: f64,
+        minerals: Vec<[u32; 3]>,
+        initial_voxel_count: u32,
     }
     let mut proj_to_remove: Vec<(Entity, u32, u32)> = Vec::new(); // (entity, chain_id, slot)
     let mut ast_hits: Vec<HitData> = Vec::new();
@@ -131,7 +155,12 @@ pub fn projectile(
             let h = (a.half_extent + 0.5) as f64;
             let d = p.pos - a.pos;
             let hit_voxel = if d.x.abs() <= h && d.y.abs() <= h && d.z.abs() <= h {
-                voxel_hit(p.pos, a.pos, a.orientation, sprite_data.registry.model(a.chain_id))
+                voxel_hit(
+                    p.pos,
+                    a.pos,
+                    a.orientation,
+                    sprite_data.registry.model(a.chain_id),
+                )
             } else {
                 None
             };
@@ -150,6 +179,8 @@ pub fn projectile(
                         hit_voxel,
                         proj_vel: p.vel,
                         proj_mass: p.mass,
+                        minerals: a.minerals.clone(),
+                        initial_voxel_count: a.initial_voxel_count,
                     });
                 }
                 break;
@@ -204,8 +235,22 @@ pub fn projectile(
             (m.pivot, m.dims)
         };
 
+        // Find mineral points inside the carved sphere before we destroy them.
+        let carve_r = HIT_CARVE_RADIUS as i32;
+        let hit_minerals: Vec<[u32; 3]> = hit
+            .minerals
+            .iter()
+            .filter(|&&[px, py, pz]| {
+                let dx = px as i32 - vx as i32;
+                let dy = py as i32 - vy as i32;
+                let dz = pz as i32 - vz as i32;
+                dx * dx + dy * dy + dz * dz <= carve_r * carve_r
+            })
+            .copied()
+            .collect();
+
         // Carve a sphere of HIT_CARVE_RADIUS centred on the hit voxel.
-        let empty = {
+        let (empty, current_voxel_count) = {
             let model = sprite_data.registry.model_mut(hit.ast_chain_id);
             let r = HIT_CARVE_RADIUS as i32;
             for dz in -r..=r {
@@ -227,14 +272,67 @@ pub fn projectile(
                     }
                 }
             }
-            model.colors.is_empty()
+            (model.colors.is_empty(), model.colors.len() as u32)
         };
+
+        // Trigger full destruction when fewer than 20 % of the original voxels remain.
+        let force_destroy = !empty && current_voxel_count * 5 < hit.initial_voxel_count;
+        let destroy = empty || force_destroy;
+
+        // On a normal carve only hit_minerals spawn; on full destruction all remaining
+        // mineral points do (so the killing blow never silently swallows crystals).
+        let crystals_to_spawn: &[[u32; 3]] = if destroy {
+            &hit.minerals
+        } else {
+            &hit_minerals
+        };
+
+        let mut rng = rand::rng();
+        for &[mx, my, mz] in crystals_to_spawn {
+            let local = DVec3::new(
+                mx as f64 + 0.5 - pivot[0] as f64,
+                my as f64 + 0.5 - pivot[1] as f64,
+                mz as f64 + 0.5 - pivot[2] as f64,
+            );
+            let crystal_world = hit.ast_pos + hit.ast_orientation * local;
+
+            let spin = DVec3::new(
+                (rng.random::<f64>() - 0.5) * 4.0,
+                (rng.random::<f64>() - 0.5) * 4.0,
+                (rng.random::<f64>() - 0.5) * 4.0,
+            );
+            let eject_dir = (crystal_world - hit.ast_pos).normalize_or_zero();
+            let eject_speed = rng.random_range(3.0f64..8.0);
+            let crystal_vel = hit.ast_vel + eject_dir * eject_speed;
+
+            let c_chain = sprite_data.registry.add(build_crystal_sprite_model());
+            gpu.add_sprite_model(&sprite_data.registry, c_chain);
+            let c_slot = gpu.append_sprite_instances(
+                &sprite_data.registry,
+                &[SpriteInstance {
+                    model_id: c_chain,
+                    transform: SpriteInstanceTransform::zeroed(),
+                }],
+            );
+            commands.push((
+                CrystalMarker,
+                CrystalChainId(c_chain),
+                NewtonBody {
+                    mass: 0.01,
+                    pos: crystal_world,
+                    vel: crystal_vel,
+                    orientation: DQuat::IDENTITY,
+                    angular_vel: spin,
+                },
+                SpriteId { model_id: c_slot },
+                Aabb { half_extent: 1.5 },
+            ));
+        }
 
         // Re-upload the edited model to the GPU.
         gpu.update_sprite_model(&sprite_data.registry, hit.ast_chain_id);
 
-        if empty {
-            // Nothing left — fully despawn.
+        if destroy {
             perform_despawn(
                 hit.ast_entity,
                 hit.ast_chain_id,
@@ -259,8 +357,7 @@ pub fn projectile(
                 vz as f64 + 0.5 - pivot[2] as f64,
             );
             let lever = hit.ast_orientation * hit_local; // world space
-            let effective_impulse =
-                hit.proj_vel * (hit.proj_mass as f64) * HIT_IMPULSE_FACTOR;
+            let effective_impulse = hit.proj_vel * (hit.proj_mass as f64) * HIT_IMPULSE_FACTOR;
             let delta_vel = effective_impulse / hit.ast_mass as f64;
             let radius = hit.ast_half_extent as f64;
             let moment = 0.4 * hit.ast_mass as f64 * radius * radius;
@@ -270,6 +367,11 @@ pub fn projectile(
                 if let Ok(body) = entry.get_component_mut::<NewtonBody>() {
                     body.vel += delta_vel;
                     body.angular_vel += delta_omega;
+                }
+                if !hit_minerals.is_empty() {
+                    if let Ok(minerals) = entry.get_component_mut::<AsteroidMinerals>() {
+                        minerals.points.retain(|p| !hit_minerals.contains(p));
+                    }
                 }
             }
         }
@@ -336,7 +438,12 @@ mod tests {
         // Voxel (2,0,0) center in model space = (2.5, 0.5, 0.5).
         // World offset from pivot = (2.5-1.5, 0, 0) = (1, 0, 0).
         assert_eq!(
-            voxel_hit(DVec3::new(1.0, 0.0, 0.0), DVec3::ZERO, DQuat::IDENTITY, &make_3x1x1()),
+            voxel_hit(
+                DVec3::new(1.0, 0.0, 0.0),
+                DVec3::ZERO,
+                DQuat::IDENTITY,
+                &make_3x1x1()
+            ),
             Some((2, 0, 0))
         );
     }
@@ -345,7 +452,12 @@ mod tests {
     fn miss_empty_voxel_identity() {
         // Voxel (0,0,0) is empty. Its world offset from pivot = (0.5-1.5, 0, 0) = (-1, 0, 0).
         assert_eq!(
-            voxel_hit(DVec3::new(-1.0, 0.0, 0.0), DVec3::ZERO, DQuat::IDENTITY, &make_3x1x1()),
+            voxel_hit(
+                DVec3::new(-1.0, 0.0, 0.0),
+                DVec3::ZERO,
+                DQuat::IDENTITY,
+                &make_3x1x1()
+            ),
             None
         );
     }
@@ -377,7 +489,12 @@ mod tests {
     #[test]
     fn miss_out_of_bounds() {
         assert_eq!(
-            voxel_hit(DVec3::new(10.0, 0.0, 0.0), DVec3::ZERO, DQuat::IDENTITY, &make_3x1x1()),
+            voxel_hit(
+                DVec3::new(10.0, 0.0, 0.0),
+                DVec3::ZERO,
+                DQuat::IDENTITY,
+                &make_3x1x1()
+            ),
             None
         );
     }

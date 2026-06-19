@@ -143,6 +143,91 @@ pub fn build_asteroid_sprite_model() -> SpriteModel {
     }
 }
 
+/// Return 3–5 model-local voxel positions buried inside the asteroid sphere,
+/// at least 2 voxels away from the surface so they are never immediately
+/// visible.
+pub fn generate_mineral_points(vsid: u32, rng: &mut impl rand::Rng) -> Vec<[u32; 3]> {
+    let center = vsid as f64 / 2.0;
+    let inner_r = center - 0.5 - 2.0; // 2-voxel buffer from outer surface
+    let inner_r2 = inner_r * inner_r;
+
+    let mut candidates: Vec<[u32; 3]> = Vec::new();
+    for y in 0..vsid {
+        for x in 0..vsid {
+            for z in 0..vsid {
+                let dx = x as f64 + 0.5 - center;
+                let dy = y as f64 + 0.5 - center;
+                let dz = z as f64 + 0.5 - center;
+                if dx * dx + dy * dy + dz * dz <= inner_r2 {
+                    candidates.push([x, y, z]);
+                }
+            }
+        }
+    }
+
+    let count = (rng.random_range(3u32..=5) as usize).min(candidates.len());
+    for i in 0..count {
+        let j = rng.random_range(i..candidates.len());
+        candidates.swap(i, j);
+    }
+    candidates.truncate(count);
+    candidates
+}
+
+/// 7-voxel cross crystal: one centre voxel plus one on each of the six faces.
+pub fn build_crystal_sprite_model() -> SpriteModel {
+    const DIM: u32 = 3;
+    let occ_words_per_col = DIM.div_ceil(32).max(1);
+    let cols = (DIM * DIM) as usize;
+
+    let mut occupancy = vec![0u32; cols * occ_words_per_col as usize];
+    let mut color_offsets = vec![0u32; cols + 1];
+    let mut colors: Vec<u32> = Vec::new();
+    let mut dirs: Vec<u32> = Vec::new();
+
+    // (x, y, z) for the 7 arm voxels, sorted by column then ascending z.
+    let arm_voxels: &[(u32, u32, u32)] = &[
+        (0, 1, 1),
+        (1, 0, 1),
+        (1, 1, 0),
+        (1, 1, 1),
+        (1, 1, 2),
+        (1, 2, 1),
+        (2, 1, 1),
+    ];
+
+    for y in 0..DIM {
+        for x in 0..DIM {
+            let col = (x + y * DIM) as usize;
+            color_offsets[col] = colors.len() as u32;
+            let mut zs: Vec<u32> = arm_voxels
+                .iter()
+                .filter(|&&(vx, vy, _)| vx == x && vy == y)
+                .map(|&(_, _, vz)| vz)
+                .collect();
+            zs.sort_unstable();
+            for vz in zs {
+                let base = col * occ_words_per_col as usize + (vz / 32) as usize;
+                occupancy[base] |= 1u32 << (vz % 32);
+                colors.push(0x80_FF_30_30); // red crystal
+                dirs.push(0);
+            }
+        }
+    }
+    color_offsets[cols] = colors.len() as u32;
+
+    SpriteModel {
+        dims: [DIM, DIM, DIM],
+        occ_words_per_col,
+        pivot: [1.5, 1.5, 1.5],
+        occupancy,
+        colors,
+        dirs,
+        color_offsets,
+        voxel_world_size: 1.0,
+    }
+}
+
 pub fn build_projectile_sprite_model() -> SpriteModel {
     SpriteModel {
         dims: [1, 1, 1],

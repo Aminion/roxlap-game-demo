@@ -10,14 +10,14 @@ use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 use crate::{
     components::{
         aabb::Aabb,
-        asteroid::{AsteroidChainId, AsteroidMarker},
+        asteroid::{AsteroidChainId, AsteroidMarker, AsteroidMinerals, AsteroidVoxelInfo},
         miner::Miner,
         newton_body::NewtonBody,
         presence_position::PresencePosition,
         sprite_id::SpriteId,
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
-    world::{build_asteroid_sprite_model, CUBE_VXL_VSID},
+    world::{build_asteroid_sprite_model, generate_mineral_points, CUBE_VXL_VSID},
     LoadedAsteroids, SpriteData, VisitedChunks, WorldSeed,
 };
 
@@ -127,6 +127,7 @@ fn populate_chunks(
 
         let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
         let chain_id = sprite_data.registry.add(build_asteroid_sprite_model());
+        let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
         gpu.add_sprite_model(&sprite_data.registry, chain_id);
         let slot = gpu.append_sprite_instances(
             &sprite_data.registry,
@@ -140,9 +141,12 @@ fn populate_chunks(
             (rng.random::<f64>() - 0.5) * 2.0,
             (rng.random::<f64>() - 0.5) * 2.0,
         );
+        let minerals = generate_mineral_points(CUBE_VXL_VSID, &mut rng);
         let entity = commands.push((
             AsteroidMarker,
             AsteroidChainId(chain_id),
+            AsteroidMinerals { points: minerals },
+            AsteroidVoxelInfo { initial_count },
             Aabb {
                 half_extent: CUBE_VXL_VSID as f32 / 2.0,
             },
