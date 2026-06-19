@@ -7,7 +7,7 @@ use roxlap_gpu::{
 
 use crate::{
     components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::SpriteId},
-    systems::performance_info::PerformanceInfo,
+    systems::{energy::Energy, performance_info::PerformanceInfo},
     AutopilotTarget, GpuWorldData, ScreenState,
 };
 
@@ -23,6 +23,7 @@ pub fn render(
     #[resource] autopilot_target: &AutopilotTarget,
     #[resource] egui_ctx: &egui::Context,
     #[resource] perf: &mut PerformanceInfo,
+    #[resource] energy: &Energy,
     world: &SubWorld,
 ) {
     let screen_size = egui::vec2(screen.width as f32, screen.height as f32);
@@ -87,7 +88,7 @@ pub fn render(
         }
     };
 
-    draw_hud(egui_ctx, gpu, screen_size, target_screen, perf);
+    draw_hud(egui_ctx, gpu, screen_size, target_screen, perf, energy);
 
     perf.work_timer = std::time::Instant::now();
 }
@@ -98,6 +99,7 @@ fn draw_hud(
     screen_size: egui::Vec2,
     target_screen: Option<egui::Pos2>,
     perf: &PerformanceInfo,
+    energy: &Energy,
 ) {
     let half = screen_size / 2.0;
 
@@ -115,6 +117,16 @@ fn draw_hud(
                 ui.colored_label(
                     egui::Color32::YELLOW,
                     format!("WORK   {:.2} ms", perf.work_time_us_display as f64 / 1000.0),
+                );
+            });
+
+        egui::Area::new(egui::Id::new("hud_energy"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.colored_label(
+                    egui::Color32::CYAN,
+                    format!("ENERGY  {:.0} / {:.0}", energy.current, energy.max),
                 );
             });
 

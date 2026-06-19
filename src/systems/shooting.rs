@@ -8,6 +8,7 @@ use crate::{
         aabb::Aabb, canon::Canon, miner::Miner, newton_body::NewtonBody, projectile::Projectile,
         sprite_id::SpriteId,
     },
+    systems::energy::{Energy, SHOT_COST},
     world::build_projectile_sprite_model,
     SpriteData,
 };
@@ -24,15 +25,17 @@ pub fn shooting(
     commands: &mut CommandBuffer,
     #[resource] gpu: &mut GpuRenderer,
     #[resource] sprite_data: &mut SpriteData,
+    #[resource] energy: &mut Energy,
 ) {
     let (spawn_pos, spawn_vel) = {
         let mut miner_q = <(&Miner, &NewtonBody, &mut Canon)>::query();
         let Some((_, body, canon)) = miner_q.iter_mut(world).next() else {
             return;
         };
-        if !canon.firing || canon.cooldown > 0.0 {
+        if !canon.firing || canon.cooldown > 0.0 || energy.current < SHOT_COST {
             return;
         }
+        energy.current -= SHOT_COST;
         let forward = (body.orientation * DVec3::NEG_Z).normalize();
         let vel = body.vel + forward * PROJECTILE_SPEED;
         let pos = body.pos + forward * 3.0;

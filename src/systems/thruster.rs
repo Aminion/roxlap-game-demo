@@ -2,9 +2,17 @@ use glam::DVec3;
 use legion::{world::SubWorld, *};
 
 use crate::{
-    components::{newton_body::NewtonBody, thruster::ThrusterBank},
+    components::{miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank},
+    systems::energy::Energy,
     Dt,
 };
+
+/// Energy drained per unit of effort per second.
+/// Effort is 0..1 per channel (linear + rotational), so max drain is 2× this.
+pub const THRUSTER_DRAIN_RATE: f64 = 5.0;
+
+/// Effort below this threshold is treated as zero (suppresses autopilot micro-correction drain).
+const EFFORT_EPSILON: f64 = 1e-3;
 
 pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) {
     body.angular_vel += body.orientation * (bank.command.clamp_length_max(bank.max_rot_accel) * dt);
@@ -17,10 +25,31 @@ pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) 
 #[system]
 #[write_component(NewtonBody)]
 #[write_component(ThrusterBank)]
-pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt) {
-    let mut query = <(&mut NewtonBody, &mut ThrusterBank)>::query();
-    for (body, bank) in query.iter_mut(world) {
-        apply_thrusters(body, bank, dt.0);
+#[read_component(Miner)]
+pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &mut Energy) {
+    let dt = dt.0;
+
+    // Non-miner entities thrust freely (no energy cost).
+    let mut other_q = <(&mut NewtonBody, &mut ThrusterBank)>::query().filter(!component::<Miner>());
+    for (body, bank) in other_q.iter_mut(world) {
+        apply_thrusters(body, bank, dt);
+    }
+
+    // Miner thrust is energy-gated: calculate cost from commands, apply only if affordable.
+    let mut miner_q = <(&Miner, &mut NewtonBody, &mut ThrusterBank)>::query();
+    for (_, body, bank) in miner_q.iter_mut(world) {
+        let lin = (bank.linear_command.length() / bank.max_lin_accel).min(1.0);
+        let rot = (bank.command.length() / bank.max_rot_accel).min(1.0);
+        let effort = lin + rot;
+        let cost = effort * THRUSTER_DRAIN_RATE * dt;
+
+        if effort <= EFFORT_EPSILON || energy.current >= cost {
+            energy.current = (energy.current - cost).max(0.0);
+            apply_thrusters(body, bank, dt);
+        } else {
+            bank.linear_command = DVec3::ZERO;
+            bank.command = DVec3::ZERO;
+        }
     }
 }
 

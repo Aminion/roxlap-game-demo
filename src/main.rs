@@ -32,6 +32,7 @@ use crate::systems::{
     autopilot::autopilot_system,
     camera::camera_update_system,
     canon_cooldown::canon_cooldown_system,
+    energy::{energy_system, Energy},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     performance_info::{update_info_system, PerformanceInfo},
@@ -181,6 +182,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
+    resources.insert(Energy::new(100.0));
 
     resources
 }
@@ -194,6 +196,7 @@ fn build_schedule() -> Schedule {
         .add_system(thruster_system())
         .add_system(newton_body_system())
         .add_system(canon_cooldown_system())
+        .add_system(energy_system())
         .add_system(presence_position_update_system())
         // Flush so newly-spawned asteroid entities are in the world before shooting
         // queries them; prevents stale SpriteId slots if a despawn displaces a just-spawned entity.
