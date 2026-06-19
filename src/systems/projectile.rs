@@ -192,16 +192,16 @@ pub fn projectile(
         return;
     }
 
-    // Build a full slot↔entity map covering all sprite entities.
+    // Build a full slot↔entity map from ALL sprite entities so that any
+    // swap-remove (projectile, asteroid, or crystal displaced) is handled correctly.
     let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
     let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
-    for a in &asteroids {
-        slot_to_entity.insert(a.slot, a.entity);
-        entity_to_slot.insert(a.entity, a.slot);
-    }
-    for p in &projectiles {
-        slot_to_entity.insert(p.slot, p.entity);
-        entity_to_slot.insert(p.entity, p.slot);
+    {
+        let mut q = <(Entity, &SpriteId)>::query();
+        for (&entity, sprite) in q.iter(world) {
+            slot_to_entity.insert(sprite.model_id, entity);
+            entity_to_slot.insert(entity, sprite.model_id);
+        }
     }
 
     // Despawn expired/hit projectiles.
@@ -302,7 +302,7 @@ pub fn projectile(
                 (rng.random::<f64>() - 0.5) * 4.0,
             );
             let eject_dir = (crystal_world - hit.ast_pos).normalize_or_zero();
-            let eject_speed = rng.random_range(3.0f64..8.0);
+            let eject_speed = rng.random_range(0.5f64..2.0);
             let crystal_vel = hit.ast_vel + eject_dir * eject_speed;
 
             let c_chain = sprite_data.registry.add(build_crystal_sprite_model());
