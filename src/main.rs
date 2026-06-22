@@ -172,7 +172,29 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(HashSet::<PlayerInput>::new());
     resources.insert(FrameTimer(Instant::now()));
     resources.insert(Dt(0.0));
-    resources.insert(egui::Context::default());
+    let egui_ctx = egui::Context::default();
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "monocraft".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/Monocraft.ttc")).into(),
+    );
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Monospace)
+        .unwrap()
+        .insert(0, "monocraft".to_owned());
+    fonts
+        .families
+        .get_mut(&egui::FontFamily::Proportional)
+        .unwrap()
+        .insert(0, "monocraft".to_owned());
+    egui_ctx.set_fonts(fonts);
+    egui_ctx.global_style_mut(|style| {
+        for text_style in style.text_styles.values_mut() {
+            text_style.size = 16.0;
+        }
+    });
+    resources.insert(egui_ctx);
     resources.insert(PerformanceInfo::new());
     resources.insert(gpu);
     resources.insert(gpu_world);
