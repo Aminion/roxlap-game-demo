@@ -242,16 +242,28 @@ fn fov_y(w: u32, h: u32) -> f32 {
 }
 
 fn restart_world(world: &mut World, resources: &mut Resources) {
-    // Remove all GPU sprite instances. GPU models are intentionally left intact:
-    // remove_sprite_model does a swap-remove internally, so iterating collected
-    // chain_ids would hit wrong slots after the first removal. New asteroids get
-    // fresh chain_ids from the growing registry; old models become orphaned but
-    // are never referenced again, which is acceptable for a demo.
+    // Remove all sprite instances, tombstone all GPU models, then compact.
+    // remove_sprite_model is a tombstone (chain_ids stay stable, no swap-remove),
+    // so iterating 0..registry.len() is safe. compact_sprite_models reclaims the
+    // GPU buffer memory. The CPU registry is kept intact — add_model asserts
+    // chain_id == chains.len(), so new models must continue appending after the
+    // old tombstoned chain_ids.
     {
+        let model_count = resources.get::<SpriteData>().unwrap().registry.len() as u32;
         let mut gpu = resources.get_mut::<GpuRenderer>().unwrap();
         while gpu.sprite_instance_count() > 0 {
             gpu.remove_sprite_instance(0);
         }
+        for chain_id in 0..model_count {
+            gpu.remove_sprite_model(chain_id);
+        }
+    }
+    {
+        let sprite_data = resources.get::<SpriteData>().unwrap();
+        resources
+            .get_mut::<GpuRenderer>()
+            .unwrap()
+            .compact_sprite_models(&sprite_data.registry);
     }
 
     // Rebuild ECS world with a fresh miner.
