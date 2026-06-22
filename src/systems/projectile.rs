@@ -223,7 +223,7 @@ pub fn projectile(
             let model = sprite_data.registry.model_mut(hit.ast_chain_id);
             let r = HIT_CARVE_RADIUS as i32;
             let hv_i = hv.as_ivec3();
-            let dims_i = IVec3::new(dims[0] as i32, dims[1] as i32, dims[2] as i32);
+            let dims_i = IVec3::from(dims.map(|d| d as i32));
             for dz in -r..=r {
                 for dy in -r..=r {
                     for dx in -r..=r {

@@ -150,8 +150,7 @@ fn asteroid_surface_depth(
     scale: DVec3,
     perlin: &PerlinNoise3D,
 ) -> f64 {
-    let d = ((DVec3::new(x as f64, y as f64, z as f64) + DVec3::splat(0.5) - DVec3::splat(center))
-        / scale)
+    let d = ((UVec3::new(x, y, z).as_dvec3() + DVec3::splat(0.5) - DVec3::splat(center)) / scale)
         .length();
     let noise = perlin.fbm(
         x as f32 + 0.5,
@@ -210,7 +209,7 @@ pub fn build_asteroid_sprite_model(
     SpriteModel {
         dims: [vsid, vsid, vsid],
         occ_words_per_col,
-        pivot: [center as f32, center as f32, center as f32],
+        pivot: [center as f32; 3],
         occupancy,
         colors,
         dirs,

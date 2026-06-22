@@ -19,7 +19,7 @@ impl Energy {
 pub const CRYSTAL_REGEN_RATE: f64 = 25.0;
 
 /// Maximum distance from the miner at which a crystal provides regen.
-const CRYSTAL_REGEN_DIST: f64 = 8.0;
+const CRYSTAL_REGEN_DIST_SQ: f64 = 8.0 * 8.0;
 
 fn compute_regen(current: f64, near_count: usize, dt: f64) -> f64 {
     if near_count == 0 {
@@ -46,7 +46,7 @@ pub fn energy(world: &SubWorld, #[resource] energy: &mut Energy, #[resource] dt:
     let mut crystal_q = <(&CrystalMarker, &NewtonBody)>::query();
     let near_count = crystal_q
         .iter(world)
-        .filter(|(_, body)| body.pos.distance(miner_pos) <= CRYSTAL_REGEN_DIST)
+        .filter(|(_, body)| body.pos.distance_squared(miner_pos) <= CRYSTAL_REGEN_DIST_SQ)
         .count();
 
     energy.current = compute_regen(energy.current, near_count, dt.0);

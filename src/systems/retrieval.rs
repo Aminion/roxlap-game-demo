@@ -60,7 +60,7 @@ pub fn retrieval(
                 let t = ray_aabb(miner_pos, forward, body.pos, aabb.half_extent as f64)?;
                 Some((*entity, body.pos, t))
             })
-            .min_by(|a, b| a.2.partial_cmp(&b.2).unwrap())
+            .min_by(|a, b| a.2.total_cmp(&b.2))
             .map(|(e, pos, _)| (e, pos))
     };
 

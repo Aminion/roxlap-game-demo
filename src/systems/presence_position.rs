@@ -109,24 +109,15 @@ fn hash_to_signed(v: u64) -> f64 {
 
 fn chunk_spawn_offset(world_seed: u64, chunk: IVec3) -> DVec3 {
     let h = chunk_hash_base(world_seed, chunk);
-    // Derive three independent values by hashing h with axis indices.
-    let hx = splitmix64(h.wrapping_add(0));
-    let hy = splitmix64(h.wrapping_add(1));
-    let hz = splitmix64(h.wrapping_add(2));
-    DVec3::new(
-        hash_to_signed(hx) * SPAWN_SAFE_RANGE,
-        hash_to_signed(hy) * SPAWN_SAFE_RANGE,
-        hash_to_signed(hz) * SPAWN_SAFE_RANGE,
-    )
+    // Axis indices 0/1/2: each splitmix64 call decorrelates adjacent seed values.
+    DVec3::from([0u64, 1, 2].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
+        * SPAWN_SAFE_RANGE
 }
 
 fn chunk_spawn_angular_vel(world_seed: u64, chunk: IVec3) -> DVec3 {
     let h = chunk_hash_base(world_seed, chunk);
     // Indices 3/4/5 are independent from the position offset indices 0/1/2.
-    let hx = splitmix64(h.wrapping_add(3));
-    let hy = splitmix64(h.wrapping_add(4));
-    let hz = splitmix64(h.wrapping_add(5));
-    DVec3::new(hash_to_signed(hx), hash_to_signed(hy), hash_to_signed(hz))
+    DVec3::from([3u64, 4, 5].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
 }
 
 fn populate_chunks(
