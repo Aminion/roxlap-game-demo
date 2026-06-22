@@ -131,9 +131,13 @@ fn draw_hud(
                 } else {
                     egui::Color32::CYAN
                 };
-                ui.colored_label(
-                    color,
-                    egui::RichText::new(format!("ENERGY  {:.0}", energy.current)).size(32.0),
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("ENERGY  {:.0}", energy.current))
+                            .size(32.0)
+                            .color(color),
+                    )
+                    .wrap_mode(egui::TextWrapMode::Extend),
                 );
             });
 
