@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 
 use bytemuck::Zeroable;
 use glam::{DQuat, DVec3};
@@ -16,7 +15,7 @@ use crate::{
         projectile::Projectile,
         sprite_id::SpriteId,
     },
-    systems::presence_position::perform_despawn,
+    systems::presence_position::{build_sprite_maps, perform_despawn},
     world::build_crystal_sprite_model,
     Dt, LoadedAsteroids, SpriteData,
 };
@@ -194,15 +193,7 @@ pub fn projectile(
 
     // Build a full slot↔entity map from ALL sprite entities so that any
     // swap-remove (projectile, asteroid, or crystal displaced) is handled correctly.
-    let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
-    let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
-    {
-        let mut q = <(Entity, &SpriteId)>::query();
-        for (&entity, sprite) in q.iter(world) {
-            slot_to_entity.insert(sprite.model_id, entity);
-            entity_to_slot.insert(entity, sprite.model_id);
-        }
-    }
+    let (mut slot_to_entity, mut entity_to_slot) = build_sprite_maps(world);
 
     // Despawn expired/hit projectiles.
     for (proj_entity, chain_id, _) in &proj_to_remove {
@@ -357,10 +348,10 @@ pub fn projectile(
                 vz as f64 + 0.5 - pivot[2] as f64,
             );
             let lever = hit.ast_orientation * hit_local; // world space
-            let effective_impulse = hit.proj_vel * (hit.proj_mass as f64) * HIT_IMPULSE_FACTOR;
-            let delta_vel = effective_impulse / hit.ast_mass as f64;
+            let effective_impulse = hit.proj_vel * hit.proj_mass * HIT_IMPULSE_FACTOR;
+            let delta_vel = effective_impulse / hit.ast_mass;
             let radius = hit.ast_half_extent as f64;
-            let moment = 0.4 * hit.ast_mass as f64 * radius * radius;
+            let moment = 0.4 * hit.ast_mass * radius * radius;
             let delta_omega = lever.cross(effective_impulse) / moment;
 
             if let Ok(mut entry) = world.entry_mut(hit.ast_entity) {

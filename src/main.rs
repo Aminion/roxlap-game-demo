@@ -3,6 +3,8 @@ mod generation;
 mod input;
 mod math;
 mod systems;
+#[cfg(test)]
+mod test_utils;
 mod world;
 
 use std::collections::HashSet;

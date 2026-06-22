@@ -92,24 +92,13 @@ pub fn miner_input(world: &mut SubWorld, #[resource] inputs: &HashSet<PlayerInpu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::{newton_body::NewtonBody, thruster::ThrusterBank};
-    use crate::systems::thruster::apply_thrusters;
+    use crate::{
+        components::thruster::ThrusterBank,
+        systems::thruster::apply_thrusters,
+        test_utils::{make_bank, make_body},
+    };
     use glam::{DQuat, DVec3};
     use proptest::prelude::*;
-
-    fn make_body() -> NewtonBody {
-        NewtonBody {
-            mass: 1.0,
-            pos: DVec3::ZERO,
-            vel: DVec3::ZERO,
-            orientation: DQuat::IDENTITY,
-            angular_vel: DVec3::ZERO,
-        }
-    }
-
-    fn make_bank() -> ThrusterBank {
-        ThrusterBank::new(1.0, 1.0, 0.6, 5.0)
-    }
 
     fn arb_player_input() -> impl Strategy<Value = PlayerInput> {
         prop_oneof![

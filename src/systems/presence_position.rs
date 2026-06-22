@@ -101,18 +101,21 @@ fn chunk_spawn_hash(world_seed: u64, chunk: IVec3) -> f32 {
 /// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
 const SPAWN_SAFE_RANGE: f64 = 24.0;
 
+/// Maps the top 24 bits of a hash word to [-1, 1).
+fn hash_to_signed(v: u64) -> f64 {
+    (v >> 40) as f64 / 8_388_608.0 - 1.0
+}
+
 fn chunk_spawn_offset(world_seed: u64, chunk: IVec3) -> DVec3 {
     let h = chunk_hash_base(world_seed, chunk);
     // Derive three independent values by hashing h with axis indices.
     let hx = splitmix64(h.wrapping_add(0));
     let hy = splitmix64(h.wrapping_add(1));
     let hz = splitmix64(h.wrapping_add(2));
-    // Map top 24 bits to [-1, 1), then scale.
-    let to_signed = |v: u64| (v >> 40) as f64 / 8_388_608.0 - 1.0;
     DVec3::new(
-        to_signed(hx) * SPAWN_SAFE_RANGE,
-        to_signed(hy) * SPAWN_SAFE_RANGE,
-        to_signed(hz) * SPAWN_SAFE_RANGE,
+        hash_to_signed(hx) * SPAWN_SAFE_RANGE,
+        hash_to_signed(hy) * SPAWN_SAFE_RANGE,
+        hash_to_signed(hz) * SPAWN_SAFE_RANGE,
     )
 }
 
@@ -122,8 +125,7 @@ fn chunk_spawn_angular_vel(world_seed: u64, chunk: IVec3) -> DVec3 {
     let hx = splitmix64(h.wrapping_add(3));
     let hy = splitmix64(h.wrapping_add(4));
     let hz = splitmix64(h.wrapping_add(5));
-    let to_signed = |v: u64| (v >> 40) as f64 / 8_388_608.0 - 1.0;
-    DVec3::new(to_signed(hx), to_signed(hy), to_signed(hz))
+    DVec3::new(hash_to_signed(hx), hash_to_signed(hy), hash_to_signed(hz))
 }
 
 fn populate_chunks(
@@ -272,6 +274,18 @@ pub fn perform_despawn(
     commands.remove(entity);
 }
 
+/// Build bidirectional slot↔entity maps covering every entity with a `SpriteId`.
+pub fn build_sprite_maps(world: &mut SubWorld) -> (HashMap<u32, Entity>, HashMap<Entity, u32>) {
+    let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
+    let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
+    let mut q = <(Entity, &SpriteId)>::query();
+    for (&entity, sprite) in q.iter(world) {
+        slot_to_entity.insert(sprite.model_id, entity);
+        entity_to_slot.insert(entity, sprite.model_id);
+    }
+    (slot_to_entity, entity_to_slot)
+}
+
 /// Single pass over all loaded asteroids: fully despawn those that left the presence radius.
 fn update_sprites(
     ship_pos: DVec3,
@@ -285,19 +299,9 @@ fn update_sprites(
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
 
     let mut to_unload: Vec<(Entity, IVec3, u32)> = Vec::new();
-    let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
-    let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
-
-    // Build a full slot↔entity map from ALL sprite entities (asteroids + projectiles)
-    // so that swap-removes triggered by asteroid despawns can correctly update any
-    // displaced entity, regardless of type.
-    {
-        let mut q = <(Entity, &SpriteId)>::query();
-        for (&entity, sprite) in q.iter(world) {
-            slot_to_entity.insert(sprite.model_id, entity);
-            entity_to_slot.insert(entity, sprite.model_id);
-        }
-    }
+    // Covers all sprite entities (asteroids + projectiles) so swap-removes triggered
+    // by asteroid despawns can correctly update any displaced entity.
+    let (mut slot_to_entity, mut entity_to_slot) = build_sprite_maps(world);
 
     // Decide which asteroids are out of range.
     for &entity in &loaded.0 {

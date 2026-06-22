@@ -57,24 +57,10 @@ pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::thruster::ThrusterBank;
-    use glam::{DQuat, DVec3};
-
-    fn make_body() -> NewtonBody {
-        NewtonBody {
-            mass: 1.0,
-            pos: DVec3::ZERO,
-            vel: DVec3::ZERO,
-            orientation: DQuat::IDENTITY,
-            angular_vel: DVec3::ZERO,
-        }
-    }
-
-    // mass=1.0, radius=1.0, rot_force=0.6 N → max_rot_accel = 5×0.6/(1×1) = 3.0 rad/s²
-    // lin_force=5.0 N → max_lin_accel = 5.0 m/s²
-    fn make_bank() -> ThrusterBank {
-        ThrusterBank::new(1.0, 1.0, 0.6, 5.0)
-    }
+    use crate::{
+        components::thruster::ThrusterBank,
+        test_utils::{make_bank, make_body},
+    };
 
     // ── Rotational ──────────────────────────────────────────────────────────
 

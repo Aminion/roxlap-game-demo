@@ -21,19 +21,9 @@ impl NewtonBody {
 #[cfg(test)]
 mod tests {
     use super::NewtonBody;
-    use crate::Dt;
+    use crate::{test_utils::make_body, Dt};
     use glam::{DQuat, DVec3};
     use std::f64::consts::FRAC_PI_2;
-
-    fn make_body() -> NewtonBody {
-        NewtonBody {
-            mass: 1.0,
-            pos: DVec3::ZERO,
-            vel: DVec3::ZERO,
-            orientation: DQuat::IDENTITY,
-            angular_vel: DVec3::ZERO,
-        }
-    }
 
     #[test]
     fn zero_angular_vel_leaves_orientation_unchanged() {
