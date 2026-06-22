@@ -250,7 +250,6 @@ pub fn perform_despawn(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
     gpu: &mut GpuRenderer,
-    loaded: &mut LoadedAsteroids,
 ) {
     let current_slot = match maps.entity_to_slot.remove(&entity) {
         Some(s) => s,
@@ -270,7 +269,6 @@ pub fn perform_despawn(
     }
 
     gpu.remove_sprite_model(chain_id);
-    loaded.0.remove(&entity);
     commands.remove(entity);
 }
 
@@ -325,7 +323,8 @@ fn update_sprites(
     }
 
     for (entity, chunk, chain_id) in to_unload {
-        perform_despawn(entity, chain_id, &mut maps, world, commands, gpu, loaded);
+        perform_despawn(entity, chain_id, &mut maps, world, commands, gpu);
+        loaded.0.remove(&entity);
         visited.0.remove(&chunk);
     }
 }

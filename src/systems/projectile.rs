@@ -196,25 +196,7 @@ pub fn projectile(
 
     // Despawn expired/hit projectiles.
     for (proj_entity, chain_id, _) in &proj_to_remove {
-        let Some(current_slot) = maps.entity_to_slot.remove(proj_entity) else {
-            continue;
-        };
-        maps.slot_to_entity.remove(&current_slot);
-
-        if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
-            if let Some(displaced_entity) = maps.slot_to_entity.remove(&(displaced_old as u32)) {
-                maps.entity_to_slot.insert(displaced_entity, current_slot);
-                maps.slot_to_entity.insert(current_slot, displaced_entity);
-                if let Ok(mut entry) = world.entry_mut(displaced_entity) {
-                    if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
-                        sprite.model_id = current_slot;
-                    }
-                }
-            }
-        }
-
-        gpu.remove_sprite_model(*chain_id);
-        commands.remove(*proj_entity);
+        perform_despawn(*proj_entity, *chain_id, &mut maps, world, commands, gpu);
     }
 
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
@@ -323,8 +305,8 @@ pub fn projectile(
                 world,
                 commands,
                 gpu,
-                loaded,
             );
+            loaded.0.remove(&hit.ast_entity);
         } else {
             // Apply linear and angular impulse from the projectile hit.
             //
