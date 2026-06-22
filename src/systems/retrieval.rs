@@ -12,30 +12,11 @@ const RETRIEVAL_ENERGY_DRAIN: f64 = 5.0;
 
 /// Slab-method ray–AABB test. Returns the entry t along `ray_dir`, or `None`.
 fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, center: DVec3, half: f64) -> Option<f64> {
-    let mut t_min = f64::NEG_INFINITY;
-    let mut t_max = f64::INFINITY;
-    for i in 0..3 {
-        let o = ray_origin[i];
-        let d = ray_dir[i];
-        let c = center[i];
-        if d.abs() < 1e-12 {
-            if (o - c).abs() > half {
-                return None;
-            }
-        } else {
-            let (t1, t2) = {
-                let a = (c - half - o) / d;
-                let b = (c + half - o) / d;
-                if a < b {
-                    (a, b)
-                } else {
-                    (b, a)
-                }
-            };
-            t_min = t_min.max(t1);
-            t_max = t_max.min(t2);
-        }
-    }
+    let inv = ray_dir.recip();
+    let t1 = (center - half - ray_origin) * inv;
+    let t2 = (center + half - ray_origin) * inv;
+    let t_min = t1.min(t2).max_element();
+    let t_max = t1.max(t2).min_element();
     if t_max < t_min || t_max < 0.0 {
         return None;
     }
