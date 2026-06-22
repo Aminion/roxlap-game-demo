@@ -89,7 +89,7 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
     (pixels, W, H)
 }
 
-pub fn build_asteroid_sprite_model() -> SpriteModel {
+pub fn build_asteroid_sprite_model(seed: u64) -> SpriteModel {
     let vsid = CUBE_VXL_VSID as usize;
     let center = CUBE_VXL_VSID as f64 / 2.0;
     let radius = center - 0.5;
@@ -106,7 +106,7 @@ pub fn build_asteroid_sprite_model() -> SpriteModel {
     let mut dirs: Vec<u32> = Vec::new();
 
     let inner_r2 = (radius * 0.5) * (radius * 0.5);
-    let mut rng = rand::rng();
+    let mut rng = StdRng::seed_from_u64(seed);
     for y in 0..vsid {
         for x in 0..vsid {
             let col = x + y * vsid;
@@ -146,7 +146,8 @@ pub fn build_asteroid_sprite_model() -> SpriteModel {
 /// Return 3–5 model-local voxel positions buried inside the asteroid sphere,
 /// at least 2 voxels away from the surface so they are never immediately
 /// visible.
-pub fn generate_mineral_points(vsid: u32, rng: &mut impl rand::Rng) -> Vec<[u32; 3]> {
+pub fn generate_mineral_points(vsid: u32, seed: u64) -> Vec<[u32; 3]> {
+    let mut rng = StdRng::seed_from_u64(seed);
     let center = vsid as f64 / 2.0;
     let inner_r = center - 0.5 - 2.0; // 2-voxel buffer from outer surface
     let inner_r2 = inner_r * inner_r;

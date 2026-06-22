@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use bytemuck::Zeroable;
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, EntityStore, *};
-use rand::RngExt;
 use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 
@@ -114,6 +113,16 @@ fn chunk_spawn_offset(world_seed: u64, chunk: IVec3) -> DVec3 {
     )
 }
 
+fn chunk_spawn_angular_vel(world_seed: u64, chunk: IVec3) -> DVec3 {
+    let h = chunk_hash_base(world_seed, chunk);
+    // Indices 3/4/5 are independent from the position offset indices 0/1/2.
+    let hx = splitmix64(h.wrapping_add(3));
+    let hy = splitmix64(h.wrapping_add(4));
+    let hz = splitmix64(h.wrapping_add(5));
+    let to_signed = |v: u64| (v >> 40) as f64 / 8_388_608.0 - 1.0;
+    DVec3::new(to_signed(hx), to_signed(hy), to_signed(hz))
+}
+
 fn populate_chunks(
     ship_pos: DVec3,
     visited: &mut VisitedChunks,
@@ -130,7 +139,6 @@ fn populate_chunks(
     }
 
     let perlin = PerlinNoise3D::new(world_seed);
-    let mut rng = rand::rng();
     let placeholder = SpriteInstanceTransform::zeroed();
 
     for chunk in to_generate {
@@ -154,7 +162,10 @@ fn populate_chunks(
 
         let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
         let spawn_pos = chunk_centre + chunk_spawn_offset(world_seed, chunk);
-        let chain_id = sprite_data.registry.add(build_asteroid_sprite_model());
+        let h = chunk_hash_base(world_seed, chunk);
+        let chain_id = sprite_data
+            .registry
+            .add(build_asteroid_sprite_model(h.wrapping_add(6)));
         let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
         gpu.add_sprite_model(&sprite_data.registry, chain_id);
         let slot = gpu.append_sprite_instances(
@@ -164,12 +175,8 @@ fn populate_chunks(
                 transform: placeholder,
             }],
         );
-        let angular_vel = DVec3::new(
-            (rng.random::<f64>() - 0.5) * 2.0,
-            (rng.random::<f64>() - 0.5) * 2.0,
-            (rng.random::<f64>() - 0.5) * 2.0,
-        );
-        let minerals = generate_mineral_points(CUBE_VXL_VSID, &mut rng);
+        let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
+        let minerals = generate_mineral_points(CUBE_VXL_VSID, h.wrapping_add(7));
         let entity = commands.push((
             AsteroidMarker,
             AsteroidChainId(chain_id),
@@ -311,7 +318,10 @@ fn update_sprites(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_swap_remove, chunk_spawn_hash, chunk_spawn_offset, SPAWN_SAFE_RANGE};
+    use super::{
+        apply_swap_remove, chunk_spawn_angular_vel, chunk_spawn_hash, chunk_spawn_offset,
+        SPAWN_SAFE_RANGE,
+    };
     use crate::generation::chunks::CHUNK_SIZE;
     use glam::{DVec3, IVec3};
     use legion::Entity;
@@ -368,6 +378,34 @@ mod tests {
         assert_ne!(hx, hy);
         assert_ne!(hy, hz);
         assert_ne!(hx, hn, "positive and negative coords must hash differently");
+    }
+
+    // ── chunk_spawn_angular_vel ───────────────────────────────────────────────
+
+    #[test]
+    fn spawn_angular_vel_deterministic() {
+        let chunk = IVec3::new(2, -3, 5);
+        assert_eq!(
+            chunk_spawn_angular_vel(77, chunk),
+            chunk_spawn_angular_vel(77, chunk)
+        );
+    }
+
+    #[test]
+    fn spawn_angular_vel_in_unit_range() {
+        for seed in [0u64, 1, 0xdead_beef, u64::MAX] {
+            for chunk in [
+                IVec3::ZERO,
+                IVec3::new(1, -1, 1000),
+                IVec3::new(-100, 200, -300),
+            ] {
+                let v = chunk_spawn_angular_vel(seed, chunk);
+                assert!(
+                    v.x.abs() <= 1.0 && v.y.abs() <= 1.0 && v.z.abs() <= 1.0,
+                    "angular_vel {v} out of [-1,1] for chunk {chunk} seed {seed}"
+                );
+            }
+        }
     }
 
     // ── chunk_spawn_offset ────────────────────────────────────────────────────
