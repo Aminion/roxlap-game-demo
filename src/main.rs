@@ -270,6 +270,9 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
             .compact_sprite_models(&sprite_data.registry);
     }
 
+    // Reset CPU sprite registry so chain_ids restart from 0 after compaction.
+    resources.get_mut::<SpriteData>().unwrap().registry = SpriteModelRegistry::new();
+
     // Rebuild ECS world with a fresh miner.
     *world = World::default();
     populate_world(world);

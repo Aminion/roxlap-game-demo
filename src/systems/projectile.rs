@@ -192,6 +192,15 @@ pub fn projectile(
         perform_despawn(*proj_entity, *chain_id, &mut maps, world, commands, gpu);
     }
 
+    // Crystal spawn data collected during hit processing; spawned after all despawns so
+    // their GPU slots aren't displaced by subsequent swap-removes in the same batch.
+    struct PendingCrystal {
+        pos: DVec3,
+        vel: DVec3,
+        spin: DVec3,
+    }
+    let mut pending_crystals: Vec<PendingCrystal> = Vec::new();
+
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
     for hit in ast_hits {
         let hv = hit.hit_voxel;
@@ -253,7 +262,6 @@ pub fn projectile(
         for &p in crystals_to_spawn {
             let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
-
             let spin = DVec3::new(
                 (rng.random::<f64>() - 0.5) * 4.0,
                 (rng.random::<f64>() - 0.5) * 4.0,
@@ -261,23 +269,11 @@ pub fn projectile(
             );
             let eject_dir = (crystal_world - hit.ast_pos).normalize_or_zero();
             let eject_speed = rng.random_range(0.5f64..2.0);
-            let crystal_vel = hit.ast_vel + eject_dir * eject_speed;
-
-            let (c_chain, c_slot) =
-                spawn_sprite(&mut sprite_data.registry, gpu, build_crystal_sprite_model());
-            commands.push((
-                CrystalMarker,
-                ChainId(c_chain),
-                NewtonBody {
-                    mass: 0.01,
-                    pos: crystal_world,
-                    vel: crystal_vel,
-                    orientation: DQuat::IDENTITY,
-                    angular_vel: spin,
-                },
-                SpriteId { slot: c_slot },
-                Aabb { half_extent: 1.5 },
-            ));
+            pending_crystals.push(PendingCrystal {
+                pos: crystal_world,
+                vel: hit.ast_vel + eject_dir * eject_speed,
+                spin,
+            });
         }
 
         // Re-upload the edited model to the GPU.
@@ -302,9 +298,9 @@ pub fn projectile(
             // delta_omega       = lever × effective_impulse / moment_of_inertia
             //   (moment of inertia for a solid sphere ≈ 2/5 × mass × radius²)
             let hit_local = DVec3::new(
-                vx as f64 + 0.5 - pivot[0] as f64,
-                vy as f64 + 0.5 - pivot[1] as f64,
-                vz as f64 + 0.5 - pivot[2] as f64,
+                hv.x as f64 + 0.5 - pivot[0] as f64,
+                hv.y as f64 + 0.5 - pivot[1] as f64,
+                hv.z as f64 + 0.5 - pivot[2] as f64,
             );
             let lever = hit.ast_orientation * hit_local; // world space
             let effective_impulse = hit.proj_vel * hit.proj_mass * HIT_IMPULSE_FACTOR;
@@ -325,6 +321,25 @@ pub fn projectile(
                 }
             }
         }
+    }
+
+    // All despawns done — safe to append crystals; their slots won't be displaced.
+    for c in pending_crystals {
+        let (c_chain, c_slot) =
+            spawn_sprite(&mut sprite_data.registry, gpu, build_crystal_sprite_model());
+        commands.push((
+            CrystalMarker,
+            ChainId(c_chain),
+            NewtonBody {
+                mass: 0.01,
+                pos: c.pos,
+                vel: c.vel,
+                orientation: DQuat::IDENTITY,
+                angular_vel: c.spin,
+            },
+            SpriteId { slot: c_slot },
+            Aabb { half_extent: 1.5 },
+        ));
     }
 }
 

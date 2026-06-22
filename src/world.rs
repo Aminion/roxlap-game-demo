@@ -1,5 +1,6 @@
 use std::f32::consts::{PI, TAU};
 
+use bytemuck::Zeroable;
 use glam::{DMat3, DQuat, DVec3, UVec3};
 use legion::World;
 use rand::{rngs::StdRng, RngExt, SeedableRng};
