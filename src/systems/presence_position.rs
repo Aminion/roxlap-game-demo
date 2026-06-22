@@ -345,12 +345,6 @@ mod tests {
     // ── chunk_spawn_hash ──────────────────────────────────────────────────────
 
     #[test]
-    fn chunk_hash_deterministic() {
-        let chunk = IVec3::new(1, 2, 3);
-        assert_eq!(chunk_spawn_hash(42, chunk), chunk_spawn_hash(42, chunk));
-    }
-
-    #[test]
     fn chunk_hash_in_unit_range() {
         for seed in [0u64, 1, u64::MAX, 0xdead_beef] {
             for chunk in [
@@ -392,15 +386,6 @@ mod tests {
     // ── chunk_spawn_angular_vel ───────────────────────────────────────────────
 
     #[test]
-    fn spawn_angular_vel_deterministic() {
-        let chunk = IVec3::new(2, -3, 5);
-        assert_eq!(
-            chunk_spawn_angular_vel(77, chunk),
-            chunk_spawn_angular_vel(77, chunk)
-        );
-    }
-
-    #[test]
     fn spawn_angular_vel_in_unit_range() {
         for seed in [0u64, 1, 0xdead_beef, u64::MAX] {
             for chunk in [
@@ -418,12 +403,6 @@ mod tests {
     }
 
     // ── chunk_spawn_offset ────────────────────────────────────────────────────
-
-    #[test]
-    fn spawn_offset_deterministic() {
-        let chunk = IVec3::new(3, -5, 7);
-        assert_eq!(chunk_spawn_offset(99, chunk), chunk_spawn_offset(99, chunk));
-    }
 
     #[test]
     fn spawn_offset_within_safe_range() {

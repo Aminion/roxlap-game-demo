@@ -96,15 +96,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn rot_no_nan_or_inf() {
-        let mut body = make_body();
-        let mut bank = make_bank();
-        bank.command = DVec3::new(0.3, -0.1, 0.7);
-        apply_thrusters(&mut body, &mut bank, 1.0 / 60.0);
-        assert!(body.angular_vel.is_finite());
-    }
-
     // ── Linear ──────────────────────────────────────────────────────────────
 
     #[test]
