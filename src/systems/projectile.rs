@@ -10,7 +10,7 @@ use crate::{
     components::{
         aabb::Aabb,
         asteroid::{
-            AsteroidChainId, AsteroidMinerals, AsteroidVoxelInfo, CrystalChainId, CrystalMarker,
+            AsteroidMinerals, AsteroidVoxelInfo, ChainId, CrystalMarker,
         },
         newton_body::NewtonBody,
         projectile::Projectile,
@@ -34,7 +34,7 @@ const HIT_IMPULSE_FACTOR: f64 = 5.0;
 #[write_component(Projectile)]
 #[write_component(NewtonBody)]
 #[read_component(Aabb)]
-#[read_component(AsteroidChainId)]
+#[read_component(ChainId)]
 #[read_component(AsteroidVoxelInfo)]
 #[write_component(AsteroidMinerals)]
 #[write_component(SpriteId)]
@@ -98,7 +98,7 @@ pub fn projectile(
         let Ok(aabb) = entry.get_component::<Aabb>() else {
             continue;
         };
-        let Ok(chain) = entry.get_component::<AsteroidChainId>() else {
+        let Ok(chain) = entry.get_component::<ChainId>() else {
             continue;
         };
         let Ok(sprite) = entry.get_component::<SpriteId>() else {
@@ -316,7 +316,7 @@ pub fn projectile(
             );
             commands.push((
                 CrystalMarker,
-                CrystalChainId(c_chain),
+                ChainId(c_chain),
                 NewtonBody {
                     mass: 0.01,
                     pos: crystal_world,

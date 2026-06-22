@@ -9,7 +9,7 @@ use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 use crate::{
     components::{
         aabb::Aabb,
-        asteroid::{AsteroidChainId, AsteroidMarker, AsteroidMinerals, AsteroidVoxelInfo},
+        asteroid::{AsteroidMarker, AsteroidMinerals, AsteroidVoxelInfo, ChainId},
         miner::Miner,
         newton_body::NewtonBody,
         presence_position::PresencePosition,
@@ -36,7 +36,7 @@ const PERLIN_MAX: f32 = 0.866;
 #[system]
 #[read_component(Miner)]
 #[read_component(NewtonBody)]
-#[read_component(AsteroidChainId)]
+#[read_component(ChainId)]
 #[write_component(PresencePosition)]
 #[write_component(SpriteId)]
 pub fn presence_position_update(
@@ -195,7 +195,7 @@ fn populate_chunks(
         let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
         let entity = commands.push((
             AsteroidMarker,
-            AsteroidChainId(chain_id),
+            ChainId(chain_id),
             AsteroidMinerals { points: minerals },
             AsteroidVoxelInfo { initial_count },
             Aabb {
@@ -309,7 +309,7 @@ fn update_sprites(
         };
         let chunk = world_to_chunk(body.pos);
         let d = chunk - center;
-        let Ok(chain) = entry.get_component::<AsteroidChainId>() else {
+        let Ok(chain) = entry.get_component::<ChainId>() else {
             continue;
         };
         if d.dot(d) > r2 {
