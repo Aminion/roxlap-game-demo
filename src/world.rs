@@ -89,7 +89,11 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
     (pixels, W, H)
 }
 
-pub fn build_asteroid_sprite_model(seed: u64) -> SpriteModel {
+/// One red voxel is scattered per this many occupied voxels per mineral point,
+/// giving a density of `mineral_count / RED_VOXELS_PER_MINERAL` across the sphere.
+const RED_VOXELS_PER_MINERAL: f32 = 20.0;
+
+pub fn build_asteroid_sprite_model(seed: u64, mineral_count: usize) -> SpriteModel {
     let vsid = CUBE_VXL_VSID as usize;
     let center = CUBE_VXL_VSID as f64 / 2.0;
     let radius = center - 0.5;
@@ -105,7 +109,7 @@ pub fn build_asteroid_sprite_model(seed: u64) -> SpriteModel {
     let mut colors: Vec<u32> = Vec::new();
     let mut dirs: Vec<u32> = Vec::new();
 
-    let inner_r2 = (radius * 0.5) * (radius * 0.5);
+    let red_prob = mineral_count as f32 / RED_VOXELS_PER_MINERAL;
     let mut rng = StdRng::seed_from_u64(seed);
     for y in 0..vsid {
         for x in 0..vsid {
@@ -118,8 +122,8 @@ pub fn build_asteroid_sprite_model(seed: u64) -> SpriteModel {
                 let d2 = dx * dx + dy * dy + dz * dz;
                 if d2 <= radius * radius {
                     occupancy[col * occ_words_per_col as usize + z / 32] |= 1u32 << (z % 32);
-                    let color = if d2 <= inner_r2 {
-                        0x80_C0_30_30 // red ore core — same count in every asteroid
+                    let color = if red_prob > 0.0 && rng.random::<f32>() < red_prob {
+                        0x80_C0_30_30
                     } else {
                         random_voxel_colour(&mut rng)
                     };

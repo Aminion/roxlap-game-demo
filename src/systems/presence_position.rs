@@ -168,9 +168,17 @@ fn populate_chunks(
         let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
         let spawn_pos = chunk_centre + chunk_spawn_offset(world_seed, chunk);
         let h = chunk_hash_base(world_seed, chunk);
-        let chain_id = sprite_data
-            .registry
-            .add(build_asteroid_sprite_model(h.wrapping_add(6)));
+        // Top bit of hash index 8 gates crystal presence (~50 % of asteroids).
+        let has_crystals = splitmix64(h.wrapping_add(8)) >> 63 == 0;
+        let minerals = if has_crystals {
+            generate_mineral_points(CUBE_VXL_VSID, h.wrapping_add(7))
+        } else {
+            vec![]
+        };
+        let chain_id = sprite_data.registry.add(build_asteroid_sprite_model(
+            h.wrapping_add(6),
+            minerals.len(),
+        ));
         let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
         gpu.add_sprite_model(&sprite_data.registry, chain_id);
         let slot = gpu.append_sprite_instances(
@@ -181,7 +189,6 @@ fn populate_chunks(
             }],
         );
         let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
-        let minerals = generate_mineral_points(CUBE_VXL_VSID, h.wrapping_add(7));
         let entity = commands.push((
             AsteroidMarker,
             AsteroidChainId(chain_id),
