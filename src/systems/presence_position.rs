@@ -71,20 +71,47 @@ pub fn presence_position_update(
     }
 }
 
-fn chunk_spawn_hash(world_seed: u64, chunk: IVec3) -> f32 {
-    // Mix world seed with per-axis coords so negative and positive chunks hash distinctly.
-    let mut h = world_seed
-        .wrapping_add((chunk.x as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15))
-        .wrapping_add((chunk.y as i64 as u64).wrapping_mul(0x6c62272e07bb0142))
-        .wrapping_add((chunk.z as i64 as u64).wrapping_mul(0x4d2c6dfc5ac42aad));
-    // SplitMix64 finalizer — avalanches all bits
+fn splitmix64(mut h: u64) -> u64 {
     h ^= h >> 30;
     h = h.wrapping_mul(0xbf58476d1ce4e5b9);
     h ^= h >> 27;
     h = h.wrapping_mul(0x94d049bb133111eb);
     h ^= h >> 31;
+    h
+}
+
+fn chunk_hash_base(world_seed: u64, chunk: IVec3) -> u64 {
+    splitmix64(
+        world_seed
+            .wrapping_add((chunk.x as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15))
+            .wrapping_add((chunk.y as i64 as u64).wrapping_mul(0x6c62272e07bb0142))
+            .wrapping_add((chunk.z as i64 as u64).wrapping_mul(0x4d2c6dfc5ac42aad)),
+    )
+}
+
+fn chunk_spawn_hash(world_seed: u64, chunk: IVec3) -> f32 {
+    let h = chunk_hash_base(world_seed, chunk);
     // Top 24 bits → [0, 1)
     (h >> 40) as f32 / 16_777_216.0
+}
+
+/// Max axis offset from chunk centre: CHUNK_SIZE/2 − half_extent = 32 − 8 = 24.
+/// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
+const SPAWN_SAFE_RANGE: f64 = 24.0;
+
+fn chunk_spawn_offset(world_seed: u64, chunk: IVec3) -> DVec3 {
+    let h = chunk_hash_base(world_seed, chunk);
+    // Derive three independent values by hashing h with axis indices.
+    let hx = splitmix64(h.wrapping_add(0));
+    let hy = splitmix64(h.wrapping_add(1));
+    let hz = splitmix64(h.wrapping_add(2));
+    // Map top 24 bits to [-1, 1), then scale.
+    let to_signed = |v: u64| (v >> 40) as f64 / 8_388_608.0 - 1.0;
+    DVec3::new(
+        to_signed(hx) * SPAWN_SAFE_RANGE,
+        to_signed(hy) * SPAWN_SAFE_RANGE,
+        to_signed(hz) * SPAWN_SAFE_RANGE,
+    )
 }
 
 fn populate_chunks(
@@ -126,6 +153,7 @@ fn populate_chunks(
         }
 
         let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
+        let spawn_pos = chunk_centre + chunk_spawn_offset(world_seed, chunk);
         let chain_id = sprite_data.registry.add(build_asteroid_sprite_model());
         let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
         gpu.add_sprite_model(&sprite_data.registry, chain_id);
@@ -153,7 +181,7 @@ fn populate_chunks(
             SpriteId { model_id: slot },
             NewtonBody {
                 mass: 1.0,
-                pos: chunk_centre,
+                pos: spawn_pos,
                 vel: DVec3::ZERO,
                 orientation: DQuat::IDENTITY,
                 angular_vel,
@@ -283,8 +311,9 @@ fn update_sprites(
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_swap_remove, chunk_spawn_hash};
-    use glam::IVec3;
+    use super::{apply_swap_remove, chunk_spawn_hash, chunk_spawn_offset, SPAWN_SAFE_RANGE};
+    use crate::generation::chunks::CHUNK_SIZE;
+    use glam::{DVec3, IVec3};
     use legion::Entity;
     use std::collections::HashMap;
 
@@ -339,6 +368,53 @@ mod tests {
         assert_ne!(hx, hy);
         assert_ne!(hy, hz);
         assert_ne!(hx, hn, "positive and negative coords must hash differently");
+    }
+
+    // ── chunk_spawn_offset ────────────────────────────────────────────────────
+
+    #[test]
+    fn spawn_offset_deterministic() {
+        let chunk = IVec3::new(3, -5, 7);
+        assert_eq!(chunk_spawn_offset(99, chunk), chunk_spawn_offset(99, chunk));
+    }
+
+    #[test]
+    fn spawn_offset_within_safe_range() {
+        for seed in [0u64, 1, 0xdead_beef, u64::MAX] {
+            for chunk in [
+                IVec3::ZERO,
+                IVec3::new(1, -1, 1000),
+                IVec3::new(-100, 200, -300),
+            ] {
+                let o = chunk_spawn_offset(seed, chunk);
+                assert!(
+                    o.x.abs() <= SPAWN_SAFE_RANGE
+                        && o.y.abs() <= SPAWN_SAFE_RANGE
+                        && o.z.abs() <= SPAWN_SAFE_RANGE,
+                    "offset {o} exceeds safe range for chunk {chunk} seed {seed}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn adjacent_asteroids_do_not_overlap() {
+        // Worst case: both asteroids offset maximally toward the shared boundary.
+        // Asteroid A in chunk (0,0,0) offset +SAFE in X; B in chunk (1,0,0) offset -SAFE in X.
+        // Gap must be >= 2 * half_extent (16) for no AABB overlap.
+        let half_extent = 8.0_f64;
+        let chunk_a = IVec3::new(0, 0, 0);
+        let chunk_b = IVec3::new(1, 0, 0);
+        let centre_a = (chunk_a.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
+        let centre_b = (chunk_b.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
+        let worst_a = centre_a + DVec3::new(SPAWN_SAFE_RANGE, 0.0, 0.0);
+        let worst_b = centre_b - DVec3::new(SPAWN_SAFE_RANGE, 0.0, 0.0);
+        let gap = (worst_b.x - worst_a.x).abs();
+        assert!(
+            gap >= 2.0 * half_extent,
+            "gap {gap} < min separation {}",
+            2.0 * half_extent
+        );
     }
 
     // ── apply_swap_remove ─────────────────────────────────────────────────────
