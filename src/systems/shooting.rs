@@ -1,7 +1,7 @@
 use bytemuck::Zeroable;
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
-use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
+use roxlap_gpu::GpuRenderer;
 
 use crate::{
     components::{
@@ -9,7 +9,7 @@ use crate::{
         projectile::Projectile, sprite_id::SpriteId,
     },
     systems::energy::{Energy, SHOT_COST},
-    world::build_projectile_sprite_model,
+    world::{build_projectile_sprite_model, spawn_sprite},
     SpriteData,
 };
 
@@ -43,14 +43,10 @@ pub fn shooting(
         (pos, vel)
     };
 
-    let chain_id = sprite_data.registry.add(build_projectile_sprite_model());
-    gpu.add_sprite_model(&sprite_data.registry, chain_id);
-    let slot = gpu.append_sprite_instances(
-        &sprite_data.registry,
-        &[SpriteInstance {
-            model_id: chain_id,
-            transform: SpriteInstanceTransform::zeroed(),
-        }],
+    let (chain_id, slot) = spawn_sprite(
+        &mut sprite_data.registry,
+        gpu,
+        build_projectile_sprite_model(),
     );
 
     commands.push((

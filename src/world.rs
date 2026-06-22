@@ -4,7 +4,10 @@ use glam::{DMat3, DQuat, DVec3, UVec3};
 use legion::World;
 use rand::{rngs::StdRng, RngExt, SeedableRng};
 use roxlap_cavegen::PerlinNoise3D;
-use roxlap_gpu::{camera::Camera as GpuCamera, SpriteModel};
+use roxlap_gpu::{
+    camera::Camera as GpuCamera, GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel,
+    SpriteModelRegistry,
+};
 
 use crate::components::{
     camera::CameraComponent, canon::Canon, miner::Miner, newton_body::NewtonBody,
@@ -107,6 +110,25 @@ const ASTEROID_NOISE_AMP: f64 = 3.5;
 
 /// Minimum voxel distance inside the displaced surface required for a mineral point.
 const MINERAL_SURFACE_BUFFER: f64 = 2.0;
+
+/// Register a sprite model and append one GPU instance for it.
+/// Returns `(chain_id, slot)`.
+pub fn spawn_sprite(
+    registry: &mut SpriteModelRegistry,
+    gpu: &mut GpuRenderer,
+    model: SpriteModel,
+) -> (u32, u32) {
+    let chain_id = registry.add(model);
+    gpu.add_sprite_model(registry, chain_id);
+    let slot = gpu.append_sprite_instances(
+        registry,
+        &[SpriteInstance {
+            model_id: chain_id,
+            transform: SpriteInstanceTransform::zeroed(),
+        }],
+    );
+    (chain_id, slot)
+}
 
 fn asteroid_scale(scale_seed: u64) -> DVec3 {
     let mut srng = StdRng::seed_from_u64(scale_seed);

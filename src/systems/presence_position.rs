@@ -4,7 +4,7 @@ use bytemuck::Zeroable;
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, EntityStore, *};
 use roxlap_cavegen::PerlinNoise3D;
-use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
+use roxlap_gpu::GpuRenderer;
 
 use crate::{
     components::{
@@ -16,7 +16,7 @@ use crate::{
         sprite_id::SpriteId,
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
-    world::{build_asteroid_sprite_model, generate_mineral_points, CUBE_VXL_VSID},
+    world::{build_asteroid_sprite_model, generate_mineral_points, spawn_sprite, CUBE_VXL_VSID},
     LoadedAsteroids, SpriteData, VisitedChunks, WorldSeed,
 };
 
@@ -144,7 +144,6 @@ fn populate_chunks(
     }
 
     let perlin = PerlinNoise3D::new(world_seed);
-    let placeholder = SpriteInstanceTransform::zeroed();
 
     for chunk in to_generate {
         // Sample regional density: normalise Perlin's ±0.866 output to [0, 1].
@@ -179,21 +178,12 @@ fn populate_chunks(
         } else {
             vec![]
         };
-        let chain_id = sprite_data.registry.add(build_asteroid_sprite_model(
-            h.wrapping_add(6),
-            noise_seed,
-            scale_seed,
-            minerals.len(),
-        ));
-        let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
-        gpu.add_sprite_model(&sprite_data.registry, chain_id);
-        let slot = gpu.append_sprite_instances(
-            &sprite_data.registry,
-            &[SpriteInstance {
-                model_id: chain_id,
-                transform: placeholder,
-            }],
+        let (chain_id, slot) = spawn_sprite(
+            &mut sprite_data.registry,
+            gpu,
+            build_asteroid_sprite_model(h.wrapping_add(6), noise_seed, scale_seed, minerals.len()),
         );
+        let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
         let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
         let entity = commands.push((
             AsteroidMarker,

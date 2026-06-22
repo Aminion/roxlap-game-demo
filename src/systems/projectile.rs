@@ -2,7 +2,7 @@ use bytemuck::Zeroable;
 use glam::{DQuat, DVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
-use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel};
+use roxlap_gpu::{GpuRenderer, SpriteModel};
 
 use crate::{
     components::{
@@ -13,7 +13,7 @@ use crate::{
         sprite_id::SpriteId,
     },
     systems::presence_position::{build_sprite_maps, perform_despawn},
-    world::build_crystal_sprite_model,
+    world::{build_crystal_sprite_model, spawn_sprite},
     Dt, LoadedAsteroids, SpriteData,
 };
 
@@ -52,12 +52,11 @@ pub fn projectile(
         mass: f64,
         lifetime: f64,
         chain_id: u32,
-        slot: u32,
     }
     let mut projectiles: Vec<ProjState> = Vec::new();
     {
-        let mut q = <(Entity, &mut Projectile, &NewtonBody, &SpriteId, &ChainId)>::query();
-        for (entity, proj, body, sprite, chain) in q.iter_mut(world) {
+        let mut q = <(Entity, &mut Projectile, &NewtonBody, &ChainId)>::query();
+        for (entity, proj, body, chain) in q.iter_mut(world) {
             proj.lifetime -= dt.0;
             projectiles.push(ProjState {
                 entity: *entity,
@@ -66,7 +65,6 @@ pub fn projectile(
                 mass: body.mass,
                 lifetime: proj.lifetime,
                 chain_id: chain.0,
-                slot: sprite.model_id,
             });
         }
     }
@@ -81,7 +79,6 @@ pub fn projectile(
         half_extent: f32,
         mass: f64,
         chain_id: u32,
-        slot: u32,
         minerals: Vec<UVec3>,
         initial_voxel_count: u32,
     }
@@ -97,9 +94,6 @@ pub fn projectile(
             continue;
         };
         let Ok(chain) = entry.get_component::<ChainId>() else {
-            continue;
-        };
-        let Ok(sprite) = entry.get_component::<SpriteId>() else {
             continue;
         };
         let minerals = entry
@@ -119,7 +113,6 @@ pub fn projectile(
             half_extent: aabb.half_extent,
             mass: body.mass,
             chain_id: chain.0,
-            slot: sprite.model_id,
             minerals,
             initial_voxel_count,
         });
@@ -141,12 +134,12 @@ pub fn projectile(
         minerals: Vec<UVec3>,
         initial_voxel_count: u32,
     }
-    let mut proj_to_remove: Vec<(Entity, u32, u32)> = Vec::new(); // (entity, chain_id, slot)
+    let mut proj_to_remove: Vec<(Entity, u32)> = Vec::new(); // (entity, chain_id)
     let mut ast_hits: Vec<HitData> = Vec::new();
 
     for p in &projectiles {
         if p.lifetime <= 0.0 {
-            proj_to_remove.push((p.entity, p.chain_id, p.slot));
+            proj_to_remove.push((p.entity, p.chain_id));
             continue;
         }
         for a in &asteroids {
@@ -163,7 +156,7 @@ pub fn projectile(
                 None
             };
             if let Some(hit_voxel) = hit_voxel {
-                proj_to_remove.push((p.entity, p.chain_id, p.slot));
+                proj_to_remove.push((p.entity, p.chain_id));
                 if !ast_hits.iter().any(|h| h.ast_entity == a.entity) {
                     ast_hits.push(HitData {
                         ast_entity: a.entity,
@@ -195,7 +188,7 @@ pub fn projectile(
     let mut maps = build_sprite_maps(world);
 
     // Despawn expired/hit projectiles.
-    for (proj_entity, chain_id, _) in &proj_to_remove {
+    for (proj_entity, chain_id) in &proj_to_remove {
         perform_despawn(*proj_entity, *chain_id, &mut maps, world, commands, gpu);
     }
 
@@ -270,15 +263,8 @@ pub fn projectile(
             let eject_speed = rng.random_range(0.5f64..2.0);
             let crystal_vel = hit.ast_vel + eject_dir * eject_speed;
 
-            let c_chain = sprite_data.registry.add(build_crystal_sprite_model());
-            gpu.add_sprite_model(&sprite_data.registry, c_chain);
-            let c_slot = gpu.append_sprite_instances(
-                &sprite_data.registry,
-                &[SpriteInstance {
-                    model_id: c_chain,
-                    transform: SpriteInstanceTransform::zeroed(),
-                }],
-            );
+            let (c_chain, c_slot) =
+                spawn_sprite(&mut sprite_data.registry, gpu, build_crystal_sprite_model());
             commands.push((
                 CrystalMarker,
                 ChainId(c_chain),
