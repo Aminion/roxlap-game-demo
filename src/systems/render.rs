@@ -61,9 +61,9 @@ pub fn render(
 
             let mut q = <(&SpriteId, &NewtonBody)>::query();
             for (sprite, b) in q.iter(world) {
-                let slot = sprite.model_id as usize;
+                let slot = sprite.slot as usize;
                 if slot < count {
-                    transforms[slot] = sprite_from_body(b, sprite.model_id);
+                    transforms[slot] = sprite_from_body(b);
                 }
             }
 
@@ -190,7 +190,7 @@ fn draw_hud(
     );
 }
 
-pub(crate) fn sprite_from_body(b: &NewtonBody, model_id: u32) -> SpriteInstance {
+pub(crate) fn sprite_from_body(b: &NewtonBody) -> SpriteInstance {
     let s = (b.orientation * DVec3::X).as_vec3();
     let h = (b.orientation * DVec3::Y).as_vec3();
     let f = (b.orientation * DVec3::Z).as_vec3();
@@ -202,7 +202,7 @@ pub(crate) fn sprite_from_body(b: &NewtonBody, model_id: u32) -> SpriteInstance 
     ];
     transform.pos = b.pos.as_vec3().to_array();
     SpriteInstance {
-        model_id,
+        model_id: 0,
         transform,
     }
 }

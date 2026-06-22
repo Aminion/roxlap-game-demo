@@ -193,7 +193,7 @@ fn populate_chunks(
             Aabb {
                 half_extent: CUBE_VXL_VSID as f32 / 2.0,
             },
-            SpriteId { model_id: slot },
+            SpriteId { slot },
             NewtonBody {
                 mass: 1.0,
                 pos: spawn_pos,
@@ -252,7 +252,7 @@ pub fn perform_despawn(
         {
             if let Ok(mut entry) = world.entry_mut(displaced_entity) {
                 if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
-                    sprite.model_id = current_slot;
+                    sprite.slot = current_slot;
                 }
             }
         }
@@ -268,8 +268,8 @@ pub fn build_sprite_maps(world: &mut SubWorld) -> SpriteMaps {
     let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
     let mut q = <(Entity, &SpriteId)>::query();
     for (&entity, sprite) in q.iter(world) {
-        slot_to_entity.insert(sprite.model_id, entity);
-        entity_to_slot.insert(entity, sprite.model_id);
+        slot_to_entity.insert(sprite.slot, entity);
+        entity_to_slot.insert(entity, sprite.slot);
     }
     SpriteMaps {
         slot_to_entity,

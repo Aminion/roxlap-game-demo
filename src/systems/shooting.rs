@@ -61,7 +61,7 @@ pub fn shooting(
             orientation: DQuat::IDENTITY,
             angular_vel: DVec3::ZERO,
         },
-        SpriteId { model_id: slot },
+        SpriteId { slot },
         Aabb { half_extent: 0.5 },
     ));
 }

@@ -275,7 +275,7 @@ pub fn projectile(
                     orientation: DQuat::IDENTITY,
                     angular_vel: spin,
                 },
-                SpriteId { model_id: c_slot },
+                SpriteId { slot: c_slot },
                 Aabb { half_extent: 1.5 },
             ));
         }
