@@ -8,5 +8,6 @@ pub mod performance_info;
 pub mod presence_position;
 pub mod projectile;
 pub mod render;
+pub mod retrieval;
 pub mod shooting;
 pub mod thruster;

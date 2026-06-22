@@ -39,6 +39,7 @@ use crate::systems::{
     presence_position::presence_position_update_system,
     projectile::projectile_system,
     render::render_system,
+    retrieval::retrieval_system,
     shooting::shooting_system,
     thruster::thruster_system,
 };
@@ -58,6 +59,9 @@ pub struct ScreenState {
 pub struct AutopilotTarget(pub DVec3);
 
 pub struct Dt(pub f64);
+
+/// True while the right mouse button is held — activates the crystal retrieval beam.
+pub struct Retrieving(pub bool);
 
 /// Accumulated mouse motion for the current frame, reset before each event poll.
 pub type MouseDelta = Vec2;
@@ -205,6 +209,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
     resources.insert(Energy::new(100.0));
+    resources.insert(Retrieving(false));
 
     resources
 }
@@ -216,6 +221,7 @@ fn build_schedule() -> Schedule {
         .add_system(camera_update_system())
         .add_system(autopilot_system())
         .add_system(thruster_system())
+        .add_system(retrieval_system())
         .add_system(newton_body_system())
         .add_system(canon_cooldown_system())
         .add_system(energy_system())
@@ -308,6 +314,18 @@ fn main() {
                     for (_, canon) in q.iter_mut(&mut world) {
                         canon.firing = false;
                     }
+                }
+                Event::MouseButtonDown {
+                    mouse_btn: MouseButton::Right,
+                    ..
+                } => {
+                    resources.get_mut::<Retrieving>().unwrap().0 = true;
+                }
+                Event::MouseButtonUp {
+                    mouse_btn: MouseButton::Right,
+                    ..
+                } => {
+                    resources.get_mut::<Retrieving>().unwrap().0 = false;
                 }
                 Event::MouseMotion { xrel, yrel, .. } => {
                     *resources.get_mut::<MouseDelta>().unwrap() +=
