@@ -108,21 +108,50 @@ const ASTEROID_NOISE_AMP: f64 = 3.5;
 /// Minimum voxel distance inside the displaced surface required for a mineral point.
 const MINERAL_SURFACE_BUFFER: f64 = 2.0;
 
+fn asteroid_scale(scale_seed: u64) -> DVec3 {
+    let mut srng = StdRng::seed_from_u64(scale_seed);
+    DVec3::new(
+        srng.random_range(0.7f64..=1.3),
+        srng.random_range(0.7f64..=1.3),
+        srng.random_range(0.7f64..=1.3),
+    )
+}
+
+/// Returns `noisy_r − d` for voxel `(x, y, z)`. Positive = inside the surface.
+fn asteroid_surface_depth(
+    x: u32,
+    y: u32,
+    z: u32,
+    center: f64,
+    radius: f64,
+    scale: DVec3,
+    perlin: &PerlinNoise3D,
+) -> f64 {
+    let d = ((DVec3::new(x as f64, y as f64, z as f64) + DVec3::splat(0.5) - DVec3::splat(center))
+        / scale)
+        .length();
+    let noise = perlin.fbm(
+        x as f32 + 0.5,
+        y as f32 + 0.5,
+        z as f32 + 0.5,
+        ASTEROID_NOISE_OCTAVES,
+        ASTEROID_NOISE_FREQ,
+    );
+    radius + noise as f64 * ASTEROID_NOISE_AMP - d
+}
+
 pub fn build_asteroid_sprite_model(
     seed: u64,
     noise_seed: u64,
     scale_seed: u64,
     mineral_count: usize,
 ) -> SpriteModel {
-    let vsid = CUBE_VXL_VSID as usize;
-    let center = CUBE_VXL_VSID as f64 / 2.0;
+    let vsid = CUBE_VXL_VSID;
+    let center = vsid as f64 / 2.0;
     let radius = center - 0.5;
 
-    let mx = CUBE_VXL_VSID;
-    let my = CUBE_VXL_VSID;
-    let mz = CUBE_VXL_VSID;
-    let occ_words_per_col = mz.div_ceil(32).max(1);
-    let cols = (mx * my) as usize;
+    let occ_words_per_col = vsid.div_ceil(32).max(1);
+    let cols = (vsid * vsid) as usize;
 
     let mut occupancy = vec![0u32; cols * occ_words_per_col as usize];
     let mut color_offsets = vec![0u32; cols + 1];
@@ -132,33 +161,16 @@ pub fn build_asteroid_sprite_model(
     let red_prob = mineral_count as f32 / RED_VOXELS_PER_MINERAL;
     let mut rng = StdRng::seed_from_u64(seed);
     let perlin = PerlinNoise3D::new(noise_seed);
-    let scale = {
-        let mut srng = StdRng::seed_from_u64(scale_seed);
-        DVec3::new(
-            srng.random_range(0.7f64..=1.3),
-            srng.random_range(0.7f64..=1.3),
-            srng.random_range(0.7f64..=1.3),
-        )
-    };
+    let scale = asteroid_scale(scale_seed);
+
     for y in 0..vsid {
         for x in 0..vsid {
-            let col = x + y * vsid;
+            let col = (x + y * vsid) as usize;
             color_offsets[col] = colors.len() as u32;
             for z in 0..vsid {
-                let d = ((DVec3::new(x as f64, y as f64, z as f64) + DVec3::splat(0.5)
-                    - DVec3::splat(center))
-                    / scale)
-                    .length();
-                let noise = perlin.fbm(
-                    x as f32 + 0.5,
-                    y as f32 + 0.5,
-                    z as f32 + 0.5,
-                    ASTEROID_NOISE_OCTAVES,
-                    ASTEROID_NOISE_FREQ,
-                );
-                let noisy_r = radius + noise as f64 * ASTEROID_NOISE_AMP;
-                if d <= noisy_r {
-                    occupancy[col * occ_words_per_col as usize + z / 32] |= 1u32 << (z % 32);
+                if asteroid_surface_depth(x, y, z, center, radius, scale, &perlin) >= 0.0 {
+                    occupancy[col * occ_words_per_col as usize + z as usize / 32] |=
+                        1u32 << (z % 32);
                     let color = if red_prob > 0.0 && rng.random::<f32>() < red_prob {
                         0x80_C0_30_30
                     } else {
@@ -173,7 +185,7 @@ pub fn build_asteroid_sprite_model(
     color_offsets[cols] = colors.len() as u32;
 
     SpriteModel {
-        dims: [mx, my, mz],
+        dims: [vsid, vsid, vsid],
         occ_words_per_col,
         pivot: [center as f32, center as f32, center as f32],
         occupancy,
@@ -197,32 +209,15 @@ pub fn generate_mineral_points(
     let center = vsid as f64 / 2.0;
     let radius = center - 0.5;
     let perlin = PerlinNoise3D::new(noise_seed);
-    let scale = {
-        let mut srng = StdRng::seed_from_u64(scale_seed);
-        DVec3::new(
-            srng.random_range(0.7f64..=1.3),
-            srng.random_range(0.7f64..=1.3),
-            srng.random_range(0.7f64..=1.3),
-        )
-    };
+    let scale = asteroid_scale(scale_seed);
 
     let mut candidates: Vec<UVec3> = Vec::new();
     for y in 0..vsid {
         for x in 0..vsid {
             for z in 0..vsid {
-                let d = ((DVec3::new(x as f64, y as f64, z as f64) + DVec3::splat(0.5)
-                    - DVec3::splat(center))
-                    / scale)
-                    .length();
-                let noise = perlin.fbm(
-                    x as f32 + 0.5,
-                    y as f32 + 0.5,
-                    z as f32 + 0.5,
-                    ASTEROID_NOISE_OCTAVES,
-                    ASTEROID_NOISE_FREQ,
-                );
-                let noisy_r = radius + noise as f64 * ASTEROID_NOISE_AMP;
-                if d < noisy_r - MINERAL_SURFACE_BUFFER {
+                if asteroid_surface_depth(x, y, z, center, radius, scale, &perlin)
+                    > MINERAL_SURFACE_BUFFER
+                {
                     candidates.push(UVec3::new(x, y, z));
                 }
             }

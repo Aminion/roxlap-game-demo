@@ -56,8 +56,8 @@ pub fn projectile(
     }
     let mut projectiles: Vec<ProjState> = Vec::new();
     {
-        let mut q = <(Entity, &mut Projectile, &NewtonBody, &SpriteId)>::query();
-        for (entity, proj, body, sprite) in q.iter_mut(world) {
+        let mut q = <(Entity, &mut Projectile, &NewtonBody, &SpriteId, &ChainId)>::query();
+        for (entity, proj, body, sprite, chain) in q.iter_mut(world) {
             proj.lifetime -= dt.0;
             projectiles.push(ProjState {
                 entity: *entity,
@@ -65,7 +65,7 @@ pub fn projectile(
                 vel: body.vel,
                 mass: body.mass,
                 lifetime: proj.lifetime,
-                chain_id: proj.chain_id,
+                chain_id: chain.0,
                 slot: sprite.model_id,
             });
         }

@@ -5,8 +5,8 @@ use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform};
 
 use crate::{
     components::{
-        aabb::Aabb, canon::Canon, miner::Miner, newton_body::NewtonBody, projectile::Projectile,
-        sprite_id::SpriteId,
+        aabb::Aabb, asteroid::ChainId, canon::Canon, miner::Miner, newton_body::NewtonBody,
+        projectile::Projectile, sprite_id::SpriteId,
     },
     systems::energy::{Energy, SHOT_COST},
     world::build_projectile_sprite_model,
@@ -56,8 +56,8 @@ pub fn shooting(
     commands.push((
         Projectile {
             lifetime: PROJECTILE_LIFETIME,
-            chain_id,
         },
+        ChainId(chain_id),
         NewtonBody {
             mass: 0.001,
             pos: spawn_pos,
