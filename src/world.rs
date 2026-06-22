@@ -11,11 +11,11 @@ use roxlap_gpu::{
 };
 
 use crate::components::{
-    camera::CameraComponent, canon::Canon, miner::Miner, newton_body::NewtonBody,
+    camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
     presence_position::PresencePosition, thruster::ThrusterBank,
 };
 
-pub const CUBE_VXL_VSID: u32 = 16;
+pub const ASTEROID_VOXEL_SIZE: u32 = 16;
 
 fn random_voxel_colour(rng: &mut impl rand::Rng) -> u32 {
     let v = rng.random_range(50u32..=180);
@@ -169,7 +169,7 @@ pub fn build_asteroid_sprite_model(
     scale_seed: u64,
     mineral_count: usize,
 ) -> SpriteModel {
-    let vsid = CUBE_VXL_VSID;
+    let vsid = ASTEROID_VOXEL_SIZE;
     let center = vsid as f64 / 2.0;
     let radius = center - 0.5;
 
@@ -370,7 +370,7 @@ fn spawn_miner(world: &mut World) {
         ThrusterBank::new(1.0, 1.0, 0.6, 5.0),
         // Infinity forces the distance check to fire on frame 1, generating the initial chunks.
         PresencePosition(DVec3::splat(f64::INFINITY)),
-        Canon {
+        Cannon {
             firing: false,
             cooldown: 0.0,
         },

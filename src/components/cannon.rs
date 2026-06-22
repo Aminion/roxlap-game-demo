@@ -1,4 +1,4 @@
-pub struct Canon {
+pub struct Cannon {
     pub firing: bool,
     pub cooldown: f64,
 }

@@ -29,12 +29,6 @@ pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) 
 pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &mut Energy) {
     let dt = dt.0;
 
-    // Non-miner entities thrust freely (no energy cost).
-    let mut other_q = <(&mut NewtonBody, &mut ThrusterBank)>::query().filter(!component::<Miner>());
-    for (body, bank) in other_q.iter_mut(world) {
-        apply_thrusters(body, bank, dt);
-    }
-
     // Miner thrust is energy-gated: calculate cost from commands, apply only if affordable.
     let mut miner_q = <(&Miner, &mut NewtonBody, &mut ThrusterBank)>::query();
     let (_, body, bank) = miner_q.iter_mut(world).next().expect("miner missing");
@@ -56,10 +50,8 @@ pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        components::thruster::ThrusterBank,
-        test_utils::{make_bank, make_body},
-    };
+    use crate::test_utils::{make_bank, make_body};
+    use glam::DQuat;
 
     // ── Rotational ──────────────────────────────────────────────────────────
 

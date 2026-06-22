@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use bytemuck::Zeroable;
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, EntityStore, *};
 use roxlap_cavegen::PerlinNoise3D;
@@ -16,7 +15,9 @@ use crate::{
         sprite_id::SpriteId,
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
-    world::{build_asteroid_sprite_model, generate_mineral_points, spawn_sprite, CUBE_VXL_VSID},
+    world::{
+        build_asteroid_sprite_model, generate_mineral_points, spawn_sprite, ASTEROID_VOXEL_SIZE,
+    },
     LoadedAsteroids, SpriteData, VisitedChunks, WorldSeed,
 };
 
@@ -174,7 +175,12 @@ fn populate_chunks(
         let noise_seed = h.wrapping_add(9);
         let scale_seed = h.wrapping_add(10);
         let minerals = if has_crystals {
-            generate_mineral_points(CUBE_VXL_VSID, h.wrapping_add(7), noise_seed, scale_seed)
+            generate_mineral_points(
+                ASTEROID_VOXEL_SIZE,
+                h.wrapping_add(7),
+                noise_seed,
+                scale_seed,
+            )
         } else {
             vec![]
         };
@@ -191,7 +197,7 @@ fn populate_chunks(
             AsteroidMinerals { points: minerals },
             AsteroidVoxelInfo { initial_count },
             Aabb {
-                half_extent: CUBE_VXL_VSID as f32 / 2.0,
+                half_extent: ASTEROID_VOXEL_SIZE as f32 / 2.0,
             },
             SpriteId { slot },
             NewtonBody {

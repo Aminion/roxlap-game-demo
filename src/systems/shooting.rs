@@ -1,11 +1,10 @@
-use bytemuck::Zeroable;
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
 use roxlap_gpu::GpuRenderer;
 
 use crate::{
     components::{
-        aabb::Aabb, asteroid::ChainId, canon::Canon, miner::Miner, newton_body::NewtonBody,
+        aabb::Aabb, asteroid::ChainId, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
         projectile::Projectile, sprite_id::SpriteId,
     },
     systems::energy::{Energy, SHOT_COST},
@@ -15,13 +14,13 @@ use crate::{
 
 const PROJECTILE_SPEED: f64 = 300.0;
 const PROJECTILE_LIFETIME: f64 = 6.0;
-const CANON_COOLDOWN: f64 = 0.2;
+const CANNON_COOLDOWN: f64 = 0.2;
 const PROJECTILE_SPAWN_OFFSET: f64 = 3.0;
 
 #[system]
 #[read_component(Miner)]
 #[read_component(NewtonBody)]
-#[write_component(Canon)]
+#[write_component(Cannon)]
 pub fn shooting(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -30,7 +29,7 @@ pub fn shooting(
     #[resource] energy: &mut Energy,
 ) {
     let (spawn_pos, spawn_vel) = {
-        let mut miner_q = <(&Miner, &NewtonBody, &mut Canon)>::query();
+        let mut miner_q = <(&Miner, &NewtonBody, &mut Cannon)>::query();
         let (_, body, canon) = miner_q.iter_mut(world).next().expect("miner missing");
         if !canon.firing || canon.cooldown > 0.0 || energy.current < SHOT_COST {
             return;
@@ -39,7 +38,7 @@ pub fn shooting(
         let forward = (body.orientation * DVec3::NEG_Z).normalize();
         let vel = body.vel + forward * PROJECTILE_SPEED;
         let pos = body.pos + forward * PROJECTILE_SPAWN_OFFSET;
-        canon.cooldown = CANON_COOLDOWN;
+        canon.cooldown = CANNON_COOLDOWN;
         (pos, vel)
     };
 

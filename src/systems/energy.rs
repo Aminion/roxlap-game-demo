@@ -43,6 +43,7 @@ pub fn energy(world: &SubWorld, #[resource] energy: &mut Energy, #[resource] dt:
         .count();
 
     if near_count > 0 {
-        energy.current += CRYSTAL_REGEN_RATE * near_count as f64 * dt.0;
+        energy.current =
+            (energy.current + CRYSTAL_REGEN_RATE * near_count as f64 * dt.0).min(ENERGY_MAX);
     }
 }

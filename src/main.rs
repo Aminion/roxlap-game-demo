@@ -28,12 +28,12 @@ use sdl2::{
     EventPump,
 };
 
-use crate::components::{canon::Canon, miner::Miner};
+use crate::components::{cannon::Cannon, miner::Miner};
 use crate::input::PlayerInput;
 use crate::systems::{
     autopilot::autopilot_system,
     camera::camera_update_system,
-    canon_cooldown::canon_cooldown_system,
+    cannon_cooldown::cannon_cooldown_system,
     crystal::crystal_system,
     energy::{energy_system, Energy, ENERGY_MAX},
     miner_input::miner_input_system,
@@ -226,7 +226,7 @@ fn build_schedule() -> Schedule {
         .add_system(thruster_system())
         .add_system(retrieval_system())
         .add_system(newton_body_system())
-        .add_system(canon_cooldown_system())
+        .add_system(cannon_cooldown_system())
         .add_system(energy_system())
         .add_system(presence_position_update_system())
         // Flush so newly-spawned asteroid entities are in the world before shooting
@@ -249,9 +249,8 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     // Remove all sprite instances, tombstone all GPU models, then compact.
     // remove_sprite_model is a tombstone (chain_ids stay stable, no swap-remove),
     // so iterating 0..registry.len() is safe. compact_sprite_models reclaims the
-    // GPU buffer memory. The CPU registry is kept intact — add_model asserts
-    // chain_id == chains.len(), so new models must continue appending after the
-    // old tombstoned chain_ids.
+    // GPU buffer memory. The CPU registry is then reset so chain_ids restart
+    // from 0 after compaction.
     {
         let model_count = resources.get::<SpriteData>().unwrap().registry.len() as u32;
         let mut gpu = resources.get_mut::<GpuRenderer>().unwrap();
@@ -351,7 +350,7 @@ fn main() {
                     mouse_btn: MouseButton::Left,
                     ..
                 } => {
-                    let mut q = <(&Miner, &mut Canon)>::query();
+                    let mut q = <(&Miner, &mut Cannon)>::query();
                     for (_, canon) in q.iter_mut(&mut world) {
                         canon.firing = true;
                     }
@@ -360,7 +359,7 @@ fn main() {
                     mouse_btn: MouseButton::Left,
                     ..
                 } => {
-                    let mut q = <(&Miner, &mut Canon)>::query();
+                    let mut q = <(&Miner, &mut Cannon)>::query();
                     for (_, canon) in q.iter_mut(&mut world) {
                         canon.firing = false;
                     }

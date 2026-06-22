@@ -1,4 +1,3 @@
-use bytemuck::Zeroable;
 use glam::{DQuat, DVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
@@ -376,7 +375,7 @@ fn voxel_hit(
 #[cfg(test)]
 mod tests {
     use super::voxel_hit;
-    use glam::{DQuat, DVec3};
+    use glam::{DQuat, DVec3, UVec3};
     use roxlap_gpu::SpriteModel;
     use std::f64::consts::FRAC_PI_2;
 
@@ -409,7 +408,7 @@ mod tests {
                 DQuat::IDENTITY,
                 &make_3x1x1()
             ),
-            Some((2, 0, 0))
+            Some(UVec3::new(2, 0, 0))
         );
     }
 
@@ -435,7 +434,7 @@ mod tests {
         let rot = DQuat::from_rotation_y(FRAC_PI_2);
         assert_eq!(
             voxel_hit(DVec3::new(0.0, 0.0, -1.0), DVec3::ZERO, rot, &make_3x1x1()),
-            Some((2, 0, 0))
+            Some(UVec3::new(2, 0, 0))
         );
     }
 
