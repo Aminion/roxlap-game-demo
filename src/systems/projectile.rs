@@ -193,19 +193,19 @@ pub fn projectile(
 
     // Build a full slot↔entity map from ALL sprite entities so that any
     // swap-remove (projectile, asteroid, or crystal displaced) is handled correctly.
-    let (mut slot_to_entity, mut entity_to_slot) = build_sprite_maps(world);
+    let mut maps = build_sprite_maps(world);
 
     // Despawn expired/hit projectiles.
     for (proj_entity, chain_id, _) in &proj_to_remove {
-        let Some(current_slot) = entity_to_slot.remove(proj_entity) else {
+        let Some(current_slot) = maps.entity_to_slot.remove(proj_entity) else {
             continue;
         };
-        slot_to_entity.remove(&current_slot);
+        maps.slot_to_entity.remove(&current_slot);
 
         if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
-            if let Some(displaced_entity) = slot_to_entity.remove(&(displaced_old as u32)) {
-                entity_to_slot.insert(displaced_entity, current_slot);
-                slot_to_entity.insert(current_slot, displaced_entity);
+            if let Some(displaced_entity) = maps.slot_to_entity.remove(&(displaced_old as u32)) {
+                maps.entity_to_slot.insert(displaced_entity, current_slot);
+                maps.slot_to_entity.insert(current_slot, displaced_entity);
                 if let Ok(mut entry) = world.entry_mut(displaced_entity) {
                     if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
                         sprite.model_id = current_slot;
@@ -327,8 +327,7 @@ pub fn projectile(
             perform_despawn(
                 hit.ast_entity,
                 hit.ast_chain_id,
-                &mut slot_to_entity,
-                &mut entity_to_slot,
+                &mut maps,
                 world,
                 commands,
                 gpu,

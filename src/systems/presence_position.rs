@@ -216,51 +216,46 @@ fn populate_chunks(
     }
 }
 
-/// Update the slot↔entity maps after a GPU swap-remove moved `displaced_old` → `current_slot`.
+/// Bidirectional slot↔entity index kept in sync with GPU sprite storage.
+pub struct SpriteMaps {
+    pub slot_to_entity: HashMap<u32, Entity>,
+    pub entity_to_slot: HashMap<Entity, u32>,
+}
+
+/// Update `maps` after a GPU swap-remove moved `displaced_old` → `current_slot`.
 /// Returns the entity whose `SpriteId` needs updating to `current_slot`, if any.
-fn apply_swap_remove(
-    current_slot: u32,
-    displaced_old: u32,
-    slot_to_entity: &mut HashMap<u32, Entity>,
-    entity_to_slot: &mut HashMap<Entity, u32>,
-) -> Option<Entity> {
-    let displaced_entity = slot_to_entity.remove(&displaced_old)?;
-    entity_to_slot.insert(displaced_entity, current_slot);
-    slot_to_entity.insert(current_slot, displaced_entity);
+fn apply_swap_remove(current_slot: u32, displaced_old: u32, maps: &mut SpriteMaps) -> Option<Entity> {
+    let displaced_entity = maps.slot_to_entity.remove(&displaced_old)?;
+    maps.entity_to_slot.insert(displaced_entity, current_slot);
+    maps.slot_to_entity.insert(current_slot, displaced_entity);
     Some(displaced_entity)
 }
 
-/// Remove a single asteroid entity from the GPU, ECS, and all bookkeeping structures.
+/// Remove a single entity from the GPU, ECS, and all bookkeeping structures.
 ///
-/// `slot_to_entity` / `entity_to_slot` must cover every currently-loaded asteroid before
-/// the first call in a batch; they are updated in-place for each removal so sequential
-/// calls within the same batch stay consistent.
+/// `maps` must cover every currently-loaded sprite entity before the first call
+/// in a batch; it is updated in-place so sequential calls within the same batch
+/// stay consistent.
 ///
 /// Does NOT touch `VisitedChunks` — callers that want the chunk to be re-populatable
 /// (distance-based unload) must remove it from `visited` themselves.
 pub fn perform_despawn(
     entity: Entity,
     chain_id: u32,
-    slot_to_entity: &mut HashMap<u32, Entity>,
-    entity_to_slot: &mut HashMap<Entity, u32>,
+    maps: &mut SpriteMaps,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
     gpu: &mut GpuRenderer,
     loaded: &mut LoadedAsteroids,
 ) {
-    let current_slot = match entity_to_slot.remove(&entity) {
+    let current_slot = match maps.entity_to_slot.remove(&entity) {
         Some(s) => s,
         None => return,
     };
-    slot_to_entity.remove(&current_slot);
+    maps.slot_to_entity.remove(&current_slot);
 
     if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
-        if let Some(displaced_entity) = apply_swap_remove(
-            current_slot,
-            displaced_old as u32,
-            slot_to_entity,
-            entity_to_slot,
-        ) {
+        if let Some(displaced_entity) = apply_swap_remove(current_slot, displaced_old as u32, maps) {
             if let Ok(mut entry) = world.entry_mut(displaced_entity) {
                 if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
                     sprite.model_id = current_slot;
@@ -274,8 +269,8 @@ pub fn perform_despawn(
     commands.remove(entity);
 }
 
-/// Build bidirectional slot↔entity maps covering every entity with a `SpriteId`.
-pub fn build_sprite_maps(world: &mut SubWorld) -> (HashMap<u32, Entity>, HashMap<Entity, u32>) {
+/// Build a `SpriteMaps` covering every entity with a `SpriteId`.
+pub fn build_sprite_maps(world: &mut SubWorld) -> SpriteMaps {
     let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
     let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
     let mut q = <(Entity, &SpriteId)>::query();
@@ -283,7 +278,7 @@ pub fn build_sprite_maps(world: &mut SubWorld) -> (HashMap<u32, Entity>, HashMap
         slot_to_entity.insert(sprite.model_id, entity);
         entity_to_slot.insert(entity, sprite.model_id);
     }
-    (slot_to_entity, entity_to_slot)
+    SpriteMaps { slot_to_entity, entity_to_slot }
 }
 
 /// Single pass over all loaded asteroids: fully despawn those that left the presence radius.
@@ -301,7 +296,7 @@ fn update_sprites(
     let mut to_unload: Vec<(Entity, IVec3, u32)> = Vec::new();
     // Covers all sprite entities (asteroids + projectiles) so swap-removes triggered
     // by asteroid despawns can correctly update any displaced entity.
-    let (mut slot_to_entity, mut entity_to_slot) = build_sprite_maps(world);
+    let mut maps = build_sprite_maps(world);
 
     // Decide which asteroids are out of range.
     for &entity in &loaded.0 {
@@ -322,16 +317,7 @@ fn update_sprites(
     }
 
     for (entity, chunk, chain_id) in to_unload {
-        perform_despawn(
-            entity,
-            chain_id,
-            &mut slot_to_entity,
-            &mut entity_to_slot,
-            world,
-            commands,
-            gpu,
-            loaded,
-        );
+        perform_despawn(entity, chain_id, &mut maps, world, commands, gpu, loaded);
         visited.0.remove(&chunk);
     }
 }
@@ -340,7 +326,7 @@ fn update_sprites(
 mod tests {
     use super::{
         apply_swap_remove, chunk_spawn_angular_vel, chunk_spawn_hash, chunk_spawn_offset,
-        SPAWN_SAFE_RANGE,
+        SpriteMaps, SPAWN_SAFE_RANGE,
     };
     use crate::generation::chunks::CHUNK_SIZE;
     use glam::{DVec3, IVec3};
@@ -481,10 +467,12 @@ mod tests {
     fn swap_remove_missing_displaced_returns_none() {
         let (_world, entities) = make_entities(1);
         let e0 = entities[0];
-        let mut s2e: HashMap<u32, Entity> = HashMap::from([(0, e0)]);
-        let mut e2s: HashMap<Entity, u32> = HashMap::from([(e0, 0)]);
+        let mut maps = SpriteMaps {
+            slot_to_entity: HashMap::from([(0, e0)]),
+            entity_to_slot: HashMap::from([(e0, 0)]),
+        };
         // displaced_old=99 is absent — nothing to reassign.
-        assert!(apply_swap_remove(0, 99, &mut s2e, &mut e2s).is_none());
+        assert!(apply_swap_remove(0, 99, &mut maps).is_none());
     }
 
     #[test]
@@ -492,20 +480,22 @@ mod tests {
         // Entities at slots 0, 1, 2. Remove slot 0; GPU moves e2 (slot 2) → slot 0.
         let (_world, entities) = make_entities(3);
         let [e0, e1, e2] = [entities[0], entities[1], entities[2]];
-        let mut s2e = HashMap::from([(0u32, e0), (1, e1), (2, e2)]);
-        let mut e2s = HashMap::from([(e0, 0u32), (e1, 1), (e2, 2)]);
+        let mut maps = SpriteMaps {
+            slot_to_entity: HashMap::from([(0u32, e0), (1, e1), (2, e2)]),
+            entity_to_slot: HashMap::from([(e0, 0u32), (e1, 1), (e2, 2)]),
+        };
 
         // Caller removes the departing entity before calling apply_swap_remove.
-        s2e.remove(&0);
-        e2s.remove(&e0);
+        maps.slot_to_entity.remove(&0);
+        maps.entity_to_slot.remove(&e0);
 
-        let result = apply_swap_remove(0, 2, &mut s2e, &mut e2s);
+        let result = apply_swap_remove(0, 2, &mut maps);
 
         assert_eq!(result, Some(e2));
-        assert_eq!(s2e[&0], e2, "slot 0 now maps to e2");
-        assert_eq!(e2s[&e2], 0, "e2 now tracks slot 0");
-        assert!(!s2e.contains_key(&2), "old slot 2 must be vacated");
-        assert_eq!(s2e[&1], e1, "e1 at slot 1 is untouched");
+        assert_eq!(maps.slot_to_entity[&0], e2, "slot 0 now maps to e2");
+        assert_eq!(maps.entity_to_slot[&e2], 0, "e2 now tracks slot 0");
+        assert!(!maps.slot_to_entity.contains_key(&2), "old slot 2 must be vacated");
+        assert_eq!(maps.slot_to_entity[&1], e1, "e1 at slot 1 is untouched");
     }
 
     #[test]
@@ -513,24 +503,26 @@ mod tests {
         // 4 entities. Unload slot 0 (e3 swaps 3→0), then unload slot 1 (e2 swaps 2→1).
         let (_world, entities) = make_entities(4);
         let [e0, e1, e2, e3] = [entities[0], entities[1], entities[2], entities[3]];
-        let mut s2e = HashMap::from([(0u32, e0), (1, e1), (2, e2), (3, e3)]);
-        let mut e2s = HashMap::from([(e0, 0u32), (e1, 1), (e2, 2), (e3, 3)]);
+        let mut maps = SpriteMaps {
+            slot_to_entity: HashMap::from([(0u32, e0), (1, e1), (2, e2), (3, e3)]),
+            entity_to_slot: HashMap::from([(e0, 0u32), (e1, 1), (e2, 2), (e3, 3)]),
+        };
 
         // First unload: e0 at slot 0; GPU moves e3 (slot 3) → slot 0.
-        s2e.remove(&0);
-        e2s.remove(&e0);
-        assert_eq!(apply_swap_remove(0, 3, &mut s2e, &mut e2s), Some(e3));
+        maps.slot_to_entity.remove(&0);
+        maps.entity_to_slot.remove(&e0);
+        assert_eq!(apply_swap_remove(0, 3, &mut maps), Some(e3));
 
         // Second unload: e1 at slot 1; GPU moves e2 (slot 2) → slot 1.
-        s2e.remove(&1);
-        e2s.remove(&e1);
-        assert_eq!(apply_swap_remove(1, 2, &mut s2e, &mut e2s), Some(e2));
+        maps.slot_to_entity.remove(&1);
+        maps.entity_to_slot.remove(&e1);
+        assert_eq!(apply_swap_remove(1, 2, &mut maps), Some(e2));
 
-        assert_eq!(e2s[&e3], 0);
-        assert_eq!(e2s[&e2], 1);
-        assert_eq!(s2e[&0], e3);
-        assert_eq!(s2e[&1], e2);
-        assert!(!s2e.contains_key(&2), "slot 2 must be vacated");
-        assert!(!s2e.contains_key(&3), "slot 3 must be vacated");
+        assert_eq!(maps.entity_to_slot[&e3], 0);
+        assert_eq!(maps.entity_to_slot[&e2], 1);
+        assert_eq!(maps.slot_to_entity[&0], e3);
+        assert_eq!(maps.slot_to_entity[&1], e2);
+        assert!(!maps.slot_to_entity.contains_key(&2), "slot 2 must be vacated");
+        assert!(!maps.slot_to_entity.contains_key(&3), "slot 3 must be vacated");
     }
 }
