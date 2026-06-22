@@ -1,4 +1,4 @@
-use glam::{DQuat, DVec3, UVec3};
+use glam::{DQuat, DVec3, IVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
 use roxlap_gpu::{GpuRenderer, SpriteModel};
@@ -222,21 +222,18 @@ pub fn projectile(
         let (empty, current_voxel_count) = {
             let model = sprite_data.registry.model_mut(hit.ast_chain_id);
             let r = HIT_CARVE_RADIUS as i32;
+            let hv_i = hv.as_ivec3();
+            let dims_i = IVec3::new(dims[0] as i32, dims[1] as i32, dims[2] as i32);
             for dz in -r..=r {
                 for dy in -r..=r {
                     for dx in -r..=r {
-                        if dx * dx + dy * dy + dz * dz > r * r {
+                        let d = IVec3::new(dx, dy, dz);
+                        if d.dot(d) > r * r {
                             continue;
                         }
-                        let (cx, cy, cz) = (hv.x as i32 + dx, hv.y as i32 + dy, hv.z as i32 + dz);
-                        if cx >= 0
-                            && cy >= 0
-                            && cz >= 0
-                            && cx < dims[0] as i32
-                            && cy < dims[1] as i32
-                            && cz < dims[2] as i32
-                        {
-                            model.set_voxel(cx as u32, cy as u32, cz as u32, None);
+                        let c = hv_i + d;
+                        if c.cmpge(IVec3::ZERO).all() && c.cmplt(dims_i).all() {
+                            model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
                         }
                     }
                 }
@@ -257,7 +254,7 @@ pub fn projectile(
         };
 
         let mut rng = rand::rng();
-        let pivot_vec = DVec3::new(pivot[0] as f64, pivot[1] as f64, pivot[2] as f64);
+        let pivot_vec = DVec3::from(pivot.map(|p| p as f64));
         for &p in crystals_to_spawn {
             let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
@@ -296,11 +293,7 @@ pub fn projectile(
             // lever             = world-space vector from asteroid centre to hit voxel
             // delta_omega       = lever × effective_impulse / moment_of_inertia
             //   (moment of inertia for a solid sphere ≈ 2/5 × mass × radius²)
-            let hit_local = DVec3::new(
-                hv.x as f64 + 0.5 - pivot[0] as f64,
-                hv.y as f64 + 0.5 - pivot[1] as f64,
-                hv.z as f64 + 0.5 - pivot[2] as f64,
-            );
+            let hit_local = hv.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let lever = hit.ast_orientation * hit_local; // world space
             let effective_impulse = hit.proj_vel * hit.proj_mass * HIT_IMPULSE_FACTOR;
             let delta_vel = effective_impulse / hit.ast_mass;
@@ -353,19 +346,14 @@ fn voxel_hit(
     model: &SpriteModel,
 ) -> Option<UVec3> {
     let local = ast_orientation.inverse() * (proj_pos - ast_pos);
-    let vx = (local.x / model.voxel_world_size as f64 + model.pivot[0] as f64).floor() as i64;
-    let vy = (local.y / model.voxel_world_size as f64 + model.pivot[1] as f64).floor() as i64;
-    let vz = (local.z / model.voxel_world_size as f64 + model.pivot[2] as f64).floor() as i64;
-    if vx < 0
-        || vy < 0
-        || vz < 0
-        || vx >= model.dims[0] as i64
-        || vy >= model.dims[1] as i64
-        || vz >= model.dims[2] as i64
-    {
+    let vws = model.voxel_world_size as f64;
+    let pivot = DVec3::from(model.pivot.map(|p| p as f64));
+    let vi = (local / vws + pivot).floor().as_ivec3();
+    let dims = IVec3::from(model.dims.map(|d| d as i32));
+    if vi.cmplt(IVec3::ZERO).any() || vi.cmpge(dims).any() {
         return None;
     }
-    let v = UVec3::new(vx as u32, vy as u32, vz as u32);
+    let v = vi.as_uvec3();
     let col = (v.x + v.y * model.dims[0]) as usize;
     let base = col * model.occ_words_per_col as usize;
     let occupied = (model.occupancy[base + v.z as usize / 32] >> (v.z % 32)) & 1 == 1;

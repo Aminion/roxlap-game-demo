@@ -86,9 +86,9 @@ fn splitmix64(mut h: u64) -> u64 {
 fn chunk_hash_base(world_seed: u64, chunk: IVec3) -> u64 {
     splitmix64(
         world_seed
-            .wrapping_add((chunk.x as i64 as u64).wrapping_mul(0x9e3779b97f4a7c15))
-            .wrapping_add((chunk.y as i64 as u64).wrapping_mul(0x6c62272e07bb0142))
-            .wrapping_add((chunk.z as i64 as u64).wrapping_mul(0x4d2c6dfc5ac42aad)),
+            .wrapping_add((chunk.x as u64).wrapping_mul(0x9e3779b97f4a7c15))
+            .wrapping_add((chunk.y as u64).wrapping_mul(0x6c62272e07bb0142))
+            .wrapping_add((chunk.z as u64).wrapping_mul(0x4d2c6dfc5ac42aad)),
     )
 }
 
