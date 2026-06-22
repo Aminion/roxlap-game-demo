@@ -9,13 +9,12 @@ use crate::components::{camera::CameraComponent, miner::Miner, newton_body::Newt
 #[write_component(CameraComponent)]
 pub fn camera_update(world: &mut SubWorld) {
     let mut query = <(&Miner, &NewtonBody, &mut CameraComponent)>::query();
-    for (_, body, cam) in query.iter_mut(world) {
-        let fwd = body.orientation * DVec3::NEG_Z;
-        let right = body.orientation * DVec3::X;
-        let up = body.orientation * DVec3::Y;
-        cam.0.position = body.pos.as_vec3().to_array();
-        cam.0.forward = fwd.as_vec3().to_array();
-        cam.0.right = right.as_vec3().to_array();
-        cam.0.down = (-up).as_vec3().to_array();
-    }
+    let (_, body, cam) = query.iter_mut(world).next().expect("miner missing");
+    let fwd = body.orientation * DVec3::NEG_Z;
+    let right = body.orientation * DVec3::X;
+    let up = body.orientation * DVec3::Y;
+    cam.0.position = body.pos.as_vec3().to_array();
+    cam.0.forward = fwd.as_vec3().to_array();
+    cam.0.right = right.as_vec3().to_array();
+    cam.0.down = (-up).as_vec3().to_array();
 }

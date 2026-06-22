@@ -66,9 +66,7 @@ pub fn retrieval(
 
     let (miner_pos, forward) = {
         let mut q = <(&Miner, &NewtonBody)>::query();
-        let Some((_, body)) = q.iter(world).next() else {
-            return;
-        };
+        let (_, body) = q.iter(world).next().expect("miner missing");
         (body.pos, (body.orientation * DVec3::NEG_Z).normalize())
     };
 

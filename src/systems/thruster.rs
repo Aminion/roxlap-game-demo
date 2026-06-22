@@ -37,20 +37,19 @@ pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &
 
     // Miner thrust is energy-gated: calculate cost from commands, apply only if affordable.
     let mut miner_q = <(&Miner, &mut NewtonBody, &mut ThrusterBank)>::query();
-    for (_, body, bank) in miner_q.iter_mut(world) {
-        let lin = (bank.linear_command.length() / bank.max_lin_accel).min(1.0);
-        let rot = (bank.command.length() / bank.max_rot_accel).min(1.0);
-        let effort = lin + rot;
-        let cost = effort * THRUSTER_DRAIN_RATE * dt;
+    let (_, body, bank) = miner_q.iter_mut(world).next().expect("miner missing");
+    let lin = (bank.linear_command.length() / bank.max_lin_accel).min(1.0);
+    let rot = (bank.command.length() / bank.max_rot_accel).min(1.0);
+    let effort = lin + rot;
+    let cost = effort * THRUSTER_DRAIN_RATE * dt;
 
-        if effort <= EFFORT_EPSILON || energy.current >= cost {
-            energy.current = (energy.current - cost).max(0.0);
-            apply_thrusters(body, bank, dt);
-        } else {
-            energy.current = 0.0;
-            bank.linear_command = DVec3::ZERO;
-            bank.command = DVec3::ZERO;
-        }
+    if effort <= EFFORT_EPSILON || energy.current >= cost {
+        energy.current = (energy.current - cost).max(0.0);
+        apply_thrusters(body, bank, dt);
+    } else {
+        energy.current = 0.0;
+        bank.linear_command = DVec3::ZERO;
+        bank.command = DVec3::ZERO;
     }
 }
 

@@ -29,9 +29,7 @@ pub fn shooting(
 ) {
     let (spawn_pos, spawn_vel) = {
         let mut miner_q = <(&Miner, &NewtonBody, &mut Canon)>::query();
-        let Some((_, body, canon)) = miner_q.iter_mut(world).next() else {
-            return;
-        };
+        let (_, body, canon) = miner_q.iter_mut(world).next().expect("miner missing");
         if !canon.firing || canon.cooldown > 0.0 || energy.current < SHOT_COST {
             return;
         }

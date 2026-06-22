@@ -48,16 +48,16 @@ pub fn presence_position_update(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
-    let mut updated_pos: Option<DVec3> = None;
-    {
+    let updated_pos = {
         let mut query = <(&Miner, &NewtonBody, &mut PresencePosition)>::query();
-        for (_, body, presence) in query.iter_mut(world) {
-            if body.pos.distance_squared(presence.0) > UPDATE_DIST_SQ {
-                presence.0 = body.pos;
-                updated_pos = Some(body.pos);
-            }
+        let (_, body, presence) = query.iter_mut(world).next().expect("miner missing");
+        if body.pos.distance_squared(presence.0) > UPDATE_DIST_SQ {
+            presence.0 = body.pos;
+            Some(body.pos)
+        } else {
+            None
         }
-    }
+    };
 
     if let Some(ship_pos) = updated_pos {
         update_sprites(ship_pos, visited, loaded, gpu, world, commands);
@@ -224,7 +224,11 @@ pub struct SpriteMaps {
 
 /// Update `maps` after a GPU swap-remove moved `displaced_old` → `current_slot`.
 /// Returns the entity whose `SpriteId` needs updating to `current_slot`, if any.
-fn apply_swap_remove(current_slot: u32, displaced_old: u32, maps: &mut SpriteMaps) -> Option<Entity> {
+fn apply_swap_remove(
+    current_slot: u32,
+    displaced_old: u32,
+    maps: &mut SpriteMaps,
+) -> Option<Entity> {
     let displaced_entity = maps.slot_to_entity.remove(&displaced_old)?;
     maps.entity_to_slot.insert(displaced_entity, current_slot);
     maps.slot_to_entity.insert(current_slot, displaced_entity);
@@ -255,7 +259,8 @@ pub fn perform_despawn(
     maps.slot_to_entity.remove(&current_slot);
 
     if let Some(displaced_old) = gpu.remove_sprite_instance(current_slot as usize) {
-        if let Some(displaced_entity) = apply_swap_remove(current_slot, displaced_old as u32, maps) {
+        if let Some(displaced_entity) = apply_swap_remove(current_slot, displaced_old as u32, maps)
+        {
             if let Ok(mut entry) = world.entry_mut(displaced_entity) {
                 if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
                     sprite.model_id = current_slot;
@@ -278,7 +283,10 @@ pub fn build_sprite_maps(world: &mut SubWorld) -> SpriteMaps {
         slot_to_entity.insert(sprite.model_id, entity);
         entity_to_slot.insert(entity, sprite.model_id);
     }
-    SpriteMaps { slot_to_entity, entity_to_slot }
+    SpriteMaps {
+        slot_to_entity,
+        entity_to_slot,
+    }
 }
 
 /// Single pass over all loaded asteroids: fully despawn those that left the presence radius.
@@ -494,7 +502,10 @@ mod tests {
         assert_eq!(result, Some(e2));
         assert_eq!(maps.slot_to_entity[&0], e2, "slot 0 now maps to e2");
         assert_eq!(maps.entity_to_slot[&e2], 0, "e2 now tracks slot 0");
-        assert!(!maps.slot_to_entity.contains_key(&2), "old slot 2 must be vacated");
+        assert!(
+            !maps.slot_to_entity.contains_key(&2),
+            "old slot 2 must be vacated"
+        );
         assert_eq!(maps.slot_to_entity[&1], e1, "e1 at slot 1 is untouched");
     }
 
@@ -522,7 +533,13 @@ mod tests {
         assert_eq!(maps.entity_to_slot[&e2], 1);
         assert_eq!(maps.slot_to_entity[&0], e3);
         assert_eq!(maps.slot_to_entity[&1], e2);
-        assert!(!maps.slot_to_entity.contains_key(&2), "slot 2 must be vacated");
-        assert!(!maps.slot_to_entity.contains_key(&3), "slot 3 must be vacated");
+        assert!(
+            !maps.slot_to_entity.contains_key(&2),
+            "slot 2 must be vacated"
+        );
+        assert!(
+            !maps.slot_to_entity.contains_key(&3),
+            "slot 3 must be vacated"
+        );
     }
 }

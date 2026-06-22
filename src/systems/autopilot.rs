@@ -88,30 +88,24 @@ pub fn autopilot(
     #[resource] mouse_delta: &MouseDelta,
 ) {
     if *mouse_delta != Vec2::ZERO {
-        let cam_axes = {
+        let (_, cam) = {
             let mut q = <(&Miner, &CameraComponent)>::query();
-            q.iter(world).next().map(|(_, cam)| {
-                let c = &cam.0;
-                (
-                    DVec3::from(c.right.map(f64::from)),
-                    -DVec3::from(c.down.map(f64::from)),
-                )
-            })
+            q.iter(world).next().expect("miner missing")
         };
-        if let Some((cam_right, cam_up)) = cam_axes {
-            let delta = mouse_delta.as_dvec2() * (-MOUSE_SENSITIVITY);
-            let yaw_rot = DQuat::from_axis_angle(cam_up, delta.x);
-            let pitch_rot = DQuat::from_axis_angle(cam_right, delta.y);
-            autopilot_target.0 = (yaw_rot * pitch_rot * autopilot_target.0).normalize();
-        }
+        let c = &cam.0;
+        let cam_right = DVec3::from(c.right.map(f64::from));
+        let cam_up = -DVec3::from(c.down.map(f64::from));
+        let delta = mouse_delta.as_dvec2() * (-MOUSE_SENSITIVITY);
+        let yaw_rot = DQuat::from_axis_angle(cam_up, delta.x);
+        let pitch_rot = DQuat::from_axis_angle(cam_right, delta.y);
+        autopilot_target.0 = (yaw_rot * pitch_rot * autopilot_target.0).normalize();
     }
 
     let target_dir = autopilot_target.0;
 
     let mut q = <(&Miner, &NewtonBody, &mut ThrusterBank)>::query();
-    for (_, body, bank) in q.iter_mut(world) {
-        apply_autopilot(body, bank, target_dir);
-    }
+    let (_, body, bank) = q.iter_mut(world).next().expect("miner missing");
+    apply_autopilot(body, bank, target_dir);
 }
 
 #[cfg(test)]

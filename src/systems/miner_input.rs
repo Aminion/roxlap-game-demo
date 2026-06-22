@@ -81,12 +81,11 @@ pub fn apply_angular_damping(
 #[write_component(ThrusterBank)]
 pub fn miner_input(world: &mut SubWorld, #[resource] inputs: &HashSet<PlayerInput>) {
     let mut query = <(&Miner, &NewtonBody, &mut ThrusterBank)>::query();
-    for (_, body, bank) in query.iter_mut(world) {
-        apply_miner_input(inputs, bank);
-        apply_miner_translation(inputs, bank);
-        apply_linear_damping(inputs, body, bank);
-        apply_angular_damping(inputs, body, bank);
-    }
+    let (_, body, bank) = query.iter_mut(world).next().expect("miner missing");
+    apply_miner_input(inputs, bank);
+    apply_miner_translation(inputs, bank);
+    apply_linear_damping(inputs, body, bank);
+    apply_angular_damping(inputs, body, bank);
 }
 
 #[cfg(test)]

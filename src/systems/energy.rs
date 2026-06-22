@@ -30,10 +30,8 @@ pub const SHOT_COST: f64 = 5.0;
 pub fn energy(world: &SubWorld, #[resource] energy: &mut Energy, #[resource] dt: &Dt) {
     let miner_pos = {
         let mut q = <(&Miner, &NewtonBody)>::query();
-        q.iter(world).next().map(|(_, body)| body.pos)
+        q.iter(world).next().expect("miner missing").1.pos
     };
-
-    let Some(miner_pos) = miner_pos else { return };
 
     let mut crystal_q = <(&CrystalMarker, &NewtonBody)>::query();
     let near_count = crystal_q
