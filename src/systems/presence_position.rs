@@ -22,10 +22,13 @@ use crate::{
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
 
-/// Spatial frequency of the density noise — lower = larger void/dense blobs.
-/// freq = 0.5 / desired_blob_diameter_in_chunks. At 0.03, blobs are ~16 chunks
-/// across, matching the load-sphere diameter (2 × LOAD_RADIUS = 16).
+/// Base spatial frequency of the density noise. 1/0.03 ≈ 33 chunks per noise
+/// wavelength — large-scale void/dense structure roughly twice the load sphere.
 const CHUNK_NOISE_FREQ: f32 = 0.03;
+
+/// fBm octave count. Each octave doubles the frequency, adding finer patchiness:
+/// octave 1 ≈ 33-chunk blobs, octave 2 ≈ 16-chunk, octave 3 ≈ 8-chunk.
+const CHUNK_NOISE_OCTAVES: u32 = 3;
 
 /// Perlin outputs ≈ ±0.866 (theoretical max √3/2); divide by this to normalise to ±1.
 const PERLIN_MAX: f32 = 0.866;
@@ -143,10 +146,12 @@ fn populate_chunks(
 
     for chunk in to_generate {
         // Sample regional density: normalise Perlin's ±0.866 output to [0, 1].
-        let raw = perlin.sample(
-            chunk.x as f32 * CHUNK_NOISE_FREQ,
-            chunk.y as f32 * CHUNK_NOISE_FREQ,
-            chunk.z as f32 * CHUNK_NOISE_FREQ,
+        let raw = perlin.fbm(
+            chunk.x as f32,
+            chunk.y as f32,
+            chunk.z as f32,
+            CHUNK_NOISE_OCTAVES,
+            CHUNK_NOISE_FREQ,
         );
         let density = ((raw / PERLIN_MAX) + 1.0) * 0.5;
         let density = density.clamp(0.0, 1.0);
