@@ -21,6 +21,9 @@ const CRYSTAL_REGEN_RATE: f64 = 25.0;
 /// Maximum distance from the miner at which a crystal provides regen.
 const CRYSTAL_REGEN_DIST: f64 = 8.0;
 
+pub const ENERGY_MAX: f64 = 200.0;
+pub const ENERGY_LOW: f64 = 30.0;
+pub const ENERGY_MED: f64 = 90.0;
 pub const SHOT_COST: f64 = 5.0;
 
 #[system]

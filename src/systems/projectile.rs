@@ -25,6 +25,8 @@ const HIT_CARVE_RADIUS: u32 = 4;
 /// feel — without it a 0.001 kg bullet hitting a 1 kg asteroid barely
 /// nudges it.
 const HIT_IMPULSE_FACTOR: f64 = 5.0;
+/// Moment of inertia coefficient for a uniform solid sphere: I = (2/5)·m·r².
+const SOLID_SPHERE_INERTIA: f64 = 0.4;
 
 #[system]
 #[write_component(Projectile)]
@@ -340,7 +342,7 @@ pub fn projectile(
             let effective_impulse = hit.proj_vel * hit.proj_mass * HIT_IMPULSE_FACTOR;
             let delta_vel = effective_impulse / hit.ast_mass;
             let radius = hit.ast_half_extent as f64;
-            let moment = 0.4 * hit.ast_mass * radius * radius;
+            let moment = SOLID_SPHERE_INERTIA * hit.ast_mass * radius * radius;
             let delta_omega = lever.cross(effective_impulse) / moment;
 
             if let Ok(mut entry) = world.entry_mut(hit.ast_entity) {

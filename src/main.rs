@@ -34,7 +34,7 @@ use crate::systems::{
     autopilot::autopilot_system,
     camera::camera_update_system,
     canon_cooldown::canon_cooldown_system,
-    energy::{energy_system, Energy},
+    energy::{energy_system, Energy, ENERGY_MAX},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     performance_info::{update_info_system, PerformanceInfo},
@@ -210,7 +210,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
-    resources.insert(Energy::new(200.0));
+    resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
 
     resources
@@ -273,7 +273,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     populate_world(world);
 
     // Reset all runtime resources.
-    resources.get_mut::<Energy>().unwrap().current = 200.0;
+    resources.get_mut::<Energy>().unwrap().current = ENERGY_MAX;
     resources.get_mut::<VisitedChunks>().unwrap().0.clear();
     resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());

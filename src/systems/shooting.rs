@@ -15,6 +15,8 @@ use crate::{
 
 const PROJECTILE_SPEED: f64 = 300.0;
 const PROJECTILE_LIFETIME: f64 = 6.0;
+const CANON_COOLDOWN: f64 = 0.2;
+const PROJECTILE_SPAWN_OFFSET: f64 = 3.0;
 
 #[system]
 #[read_component(Miner)]
@@ -36,8 +38,8 @@ pub fn shooting(
         energy.current -= SHOT_COST;
         let forward = (body.orientation * DVec3::NEG_Z).normalize();
         let vel = body.vel + forward * PROJECTILE_SPEED;
-        let pos = body.pos + forward * 3.0;
-        canon.cooldown = 0.2;
+        let pos = body.pos + forward * PROJECTILE_SPAWN_OFFSET;
+        canon.cooldown = CANON_COOLDOWN;
         (pos, vel)
     };
 
