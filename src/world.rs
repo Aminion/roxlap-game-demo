@@ -3,6 +3,7 @@ use std::f32::consts::{PI, TAU};
 use glam::{DMat3, DQuat, DVec3};
 use legion::World;
 use rand::{rngs::StdRng, RngExt, SeedableRng};
+use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::{camera::Camera as GpuCamera, SpriteModel};
 
 use crate::components::{
@@ -93,7 +94,26 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
 /// giving a density of `mineral_count / RED_VOXELS_PER_MINERAL` across the sphere.
 const RED_VOXELS_PER_MINERAL: f32 = 20.0;
 
-pub fn build_asteroid_sprite_model(seed: u64, mineral_count: usize) -> SpriteModel {
+/// Perlin noise frequency for asteroid surface distortion, in voxel-space.
+/// Wavelength ≈ 1 / 0.20 ≈ 5 voxels — about 3 bumps across the 16-voxel diameter.
+const ASTEROID_NOISE_FREQ: f32 = 0.20;
+
+/// fBm octaves for asteroid surface noise.
+const ASTEROID_NOISE_OCTAVES: u32 = 3;
+
+/// Max surface displacement in voxels. fBm peaks near ±0.866, so effective
+/// range is ≈ ±3.0 voxels against a base radius of 7.5.
+const ASTEROID_NOISE_AMP: f64 = 3.5;
+
+/// Minimum voxel distance inside the displaced surface required for a mineral point.
+const MINERAL_SURFACE_BUFFER: f64 = 2.0;
+
+pub fn build_asteroid_sprite_model(
+    seed: u64,
+    noise_seed: u64,
+    scale_seed: u64,
+    mineral_count: usize,
+) -> SpriteModel {
     let vsid = CUBE_VXL_VSID as usize;
     let center = CUBE_VXL_VSID as f64 / 2.0;
     let radius = center - 0.5;
@@ -111,6 +131,15 @@ pub fn build_asteroid_sprite_model(seed: u64, mineral_count: usize) -> SpriteMod
 
     let red_prob = mineral_count as f32 / RED_VOXELS_PER_MINERAL;
     let mut rng = StdRng::seed_from_u64(seed);
+    let perlin = PerlinNoise3D::new(noise_seed);
+    let (sx, sy, sz) = {
+        let mut srng = StdRng::seed_from_u64(scale_seed);
+        (
+            srng.random_range(0.7f64..=1.3),
+            srng.random_range(0.7f64..=1.3),
+            srng.random_range(0.7f64..=1.3),
+        )
+    };
     for y in 0..vsid {
         for x in 0..vsid {
             let col = x + y * vsid;
@@ -119,8 +148,17 @@ pub fn build_asteroid_sprite_model(seed: u64, mineral_count: usize) -> SpriteMod
                 let dx = x as f64 + 0.5 - center;
                 let dy = y as f64 + 0.5 - center;
                 let dz = z as f64 + 0.5 - center;
-                let d2 = dx * dx + dy * dy + dz * dz;
-                if d2 <= radius * radius {
+                let d =
+                    ((dx / sx) * (dx / sx) + (dy / sy) * (dy / sy) + (dz / sz) * (dz / sz)).sqrt();
+                let noise = perlin.fbm(
+                    x as f32 + 0.5,
+                    y as f32 + 0.5,
+                    z as f32 + 0.5,
+                    ASTEROID_NOISE_OCTAVES,
+                    ASTEROID_NOISE_FREQ,
+                );
+                let noisy_r = radius + noise as f64 * ASTEROID_NOISE_AMP;
+                if d <= noisy_r {
                     occupancy[col * occ_words_per_col as usize + z / 32] |= 1u32 << (z % 32);
                     let color = if red_prob > 0.0 && rng.random::<f32>() < red_prob {
                         0x80_C0_30_30
@@ -147,14 +185,27 @@ pub fn build_asteroid_sprite_model(seed: u64, mineral_count: usize) -> SpriteMod
     }
 }
 
-/// Return 3–5 model-local voxel positions buried inside the asteroid sphere,
-/// at least 2 voxels away from the surface so they are never immediately
-/// visible.
-pub fn generate_mineral_points(vsid: u32, seed: u64) -> Vec<[u32; 3]> {
+/// Return 3–5 model-local voxel positions buried inside the asteroid.
+/// Uses the same Perlin surface displacement as `build_asteroid_sprite_model`
+/// and requires a `MINERAL_SURFACE_BUFFER` voxel margin inside the actual surface.
+pub fn generate_mineral_points(
+    vsid: u32,
+    seed: u64,
+    noise_seed: u64,
+    scale_seed: u64,
+) -> Vec<[u32; 3]> {
     let mut rng = StdRng::seed_from_u64(seed);
     let center = vsid as f64 / 2.0;
-    let inner_r = center - 0.5 - 2.0; // 2-voxel buffer from outer surface
-    let inner_r2 = inner_r * inner_r;
+    let radius = center - 0.5;
+    let perlin = PerlinNoise3D::new(noise_seed);
+    let (sx, sy, sz) = {
+        let mut srng = StdRng::seed_from_u64(scale_seed);
+        (
+            srng.random_range(0.7f64..=1.3),
+            srng.random_range(0.7f64..=1.3),
+            srng.random_range(0.7f64..=1.3),
+        )
+    };
 
     let mut candidates: Vec<[u32; 3]> = Vec::new();
     for y in 0..vsid {
@@ -163,7 +214,17 @@ pub fn generate_mineral_points(vsid: u32, seed: u64) -> Vec<[u32; 3]> {
                 let dx = x as f64 + 0.5 - center;
                 let dy = y as f64 + 0.5 - center;
                 let dz = z as f64 + 0.5 - center;
-                if dx * dx + dy * dy + dz * dz <= inner_r2 {
+                let d =
+                    ((dx / sx) * (dx / sx) + (dy / sy) * (dy / sy) + (dz / sz) * (dz / sz)).sqrt();
+                let noise = perlin.fbm(
+                    x as f32 + 0.5,
+                    y as f32 + 0.5,
+                    z as f32 + 0.5,
+                    ASTEROID_NOISE_OCTAVES,
+                    ASTEROID_NOISE_FREQ,
+                );
+                let noisy_r = radius + noise as f64 * ASTEROID_NOISE_AMP;
+                if d < noisy_r - MINERAL_SURFACE_BUFFER {
                     candidates.push([x, y, z]);
                 }
             }

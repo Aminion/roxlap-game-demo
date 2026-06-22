@@ -170,13 +170,17 @@ fn populate_chunks(
         let h = chunk_hash_base(world_seed, chunk);
         // Top bit of hash index 8 gates crystal presence (~50 % of asteroids).
         let has_crystals = splitmix64(h.wrapping_add(8)) >> 63 == 0;
+        let noise_seed = h.wrapping_add(9);
+        let scale_seed = h.wrapping_add(10);
         let minerals = if has_crystals {
-            generate_mineral_points(CUBE_VXL_VSID, h.wrapping_add(7))
+            generate_mineral_points(CUBE_VXL_VSID, h.wrapping_add(7), noise_seed, scale_seed)
         } else {
             vec![]
         };
         let chain_id = sprite_data.registry.add(build_asteroid_sprite_model(
             h.wrapping_add(6),
+            noise_seed,
+            scale_seed,
             minerals.len(),
         ));
         let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
