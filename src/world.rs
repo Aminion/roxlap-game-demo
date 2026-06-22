@@ -1,6 +1,6 @@
 use std::f32::consts::{PI, TAU};
 
-use glam::{DMat3, DQuat, DVec3};
+use glam::{DMat3, DQuat, DVec3, UVec3};
 use legion::World;
 use rand::{rngs::StdRng, RngExt, SeedableRng};
 use roxlap_cavegen::PerlinNoise3D;
@@ -193,7 +193,7 @@ pub fn generate_mineral_points(
     seed: u64,
     noise_seed: u64,
     scale_seed: u64,
-) -> Vec<[u32; 3]> {
+) -> Vec<UVec3> {
     let mut rng = StdRng::seed_from_u64(seed);
     let center = vsid as f64 / 2.0;
     let radius = center - 0.5;
@@ -207,7 +207,7 @@ pub fn generate_mineral_points(
         )
     };
 
-    let mut candidates: Vec<[u32; 3]> = Vec::new();
+    let mut candidates: Vec<UVec3> = Vec::new();
     for y in 0..vsid {
         for x in 0..vsid {
             for z in 0..vsid {
@@ -225,7 +225,7 @@ pub fn generate_mineral_points(
                 );
                 let noisy_r = radius + noise as f64 * ASTEROID_NOISE_AMP;
                 if d < noisy_r - MINERAL_SURFACE_BUFFER {
-                    candidates.push([x, y, z]);
+                    candidates.push(UVec3::new(x, y, z));
                 }
             }
         }

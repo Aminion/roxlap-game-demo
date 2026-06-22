@@ -1,6 +1,5 @@
-
 use bytemuck::Zeroable;
-use glam::{DQuat, DVec3};
+use glam::{DQuat, DVec3, IVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
 use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel};
@@ -8,9 +7,7 @@ use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteMod
 use crate::{
     components::{
         aabb::Aabb,
-        asteroid::{
-            AsteroidMinerals, AsteroidVoxelInfo, ChainId, CrystalMarker,
-        },
+        asteroid::{AsteroidMinerals, AsteroidVoxelInfo, ChainId, CrystalMarker},
         newton_body::NewtonBody,
         projectile::Projectile,
         sprite_id::SpriteId,
@@ -83,7 +80,7 @@ pub fn projectile(
         mass: f64,
         chain_id: u32,
         slot: u32,
-        minerals: Vec<[u32; 3]>,
+        minerals: Vec<UVec3>,
         initial_voxel_count: u32,
     }
     let mut asteroids: Vec<AstState> = Vec::new();
@@ -139,7 +136,7 @@ pub fn projectile(
         hit_voxel: (u32, u32, u32),
         proj_vel: DVec3,
         proj_mass: f64,
-        minerals: Vec<[u32; 3]>,
+        minerals: Vec<UVec3>,
         initial_voxel_count: u32,
     }
     let mut proj_to_remove: Vec<(Entity, u32, u32)> = Vec::new(); // (entity, chain_id, slot)
@@ -228,15 +225,11 @@ pub fn projectile(
 
         // Find mineral points inside the carved sphere before we destroy them.
         let carve_r = HIT_CARVE_RADIUS as i32;
-        let hit_minerals: Vec<[u32; 3]> = hit
+        let hit_voxel_i = IVec3::new(vx as i32, vy as i32, vz as i32);
+        let hit_minerals: Vec<UVec3> = hit
             .minerals
             .iter()
-            .filter(|&&[px, py, pz]| {
-                let dx = px as i32 - vx as i32;
-                let dy = py as i32 - vy as i32;
-                let dz = pz as i32 - vz as i32;
-                dx * dx + dy * dy + dz * dz <= carve_r * carve_r
-            })
+            .filter(|p| (p.as_ivec3() - hit_voxel_i).length_squared() <= carve_r * carve_r)
             .copied()
             .collect();
 
@@ -272,19 +265,16 @@ pub fn projectile(
 
         // On a normal carve only hit_minerals spawn; on full destruction all remaining
         // mineral points do (so the killing blow never silently swallows crystals).
-        let crystals_to_spawn: &[[u32; 3]] = if destroy {
+        let crystals_to_spawn: &[UVec3] = if destroy {
             &hit.minerals
         } else {
             &hit_minerals
         };
 
         let mut rng = rand::rng();
-        for &[mx, my, mz] in crystals_to_spawn {
-            let local = DVec3::new(
-                mx as f64 + 0.5 - pivot[0] as f64,
-                my as f64 + 0.5 - pivot[1] as f64,
-                mz as f64 + 0.5 - pivot[2] as f64,
-            );
+        let pivot_vec = DVec3::new(pivot[0] as f64, pivot[1] as f64, pivot[2] as f64);
+        for &p in crystals_to_spawn {
+            let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
 
             let spin = DVec3::new(

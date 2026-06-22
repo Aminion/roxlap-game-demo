@@ -5,7 +5,7 @@ pub struct ChainId(pub u32);
 /// Model-local voxel coordinates of embedded mineral cores. Each point spawns
 /// a crystal when the carve sphere reaches it.
 pub struct AsteroidMinerals {
-    pub points: Vec<[u32; 3]>,
+    pub points: Vec<glam::UVec3>,
 }
 
 /// Voxel count of the asteroid at spawn time; used to trigger auto-destruction
