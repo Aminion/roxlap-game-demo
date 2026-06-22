@@ -15,9 +15,6 @@ impl Energy {
     }
 }
 
-/// Energy cap — prevents unlimited accumulation near crystal clusters.
-pub const MAX_ENERGY: f64 = 300.0;
-
 /// Energy regenerated per crystal per second while within range.
 const CRYSTAL_REGEN_RATE: f64 = 25.0;
 
@@ -45,7 +42,6 @@ pub fn energy(world: &SubWorld, #[resource] energy: &mut Energy, #[resource] dt:
         .count();
 
     if near_count > 0 {
-        energy.current =
-            (energy.current + CRYSTAL_REGEN_RATE * near_count as f64 * dt.0).min(MAX_ENERGY);
+        energy.current += CRYSTAL_REGEN_RATE * near_count as f64 * dt.0;
     }
 }

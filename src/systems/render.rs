@@ -7,10 +7,7 @@ use roxlap_gpu::{
 
 use crate::{
     components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::SpriteId},
-    systems::{
-        energy::{Energy, MAX_ENERGY},
-        performance_info::PerformanceInfo,
-    },
+    systems::{energy::Energy, performance_info::PerformanceInfo},
     AutopilotTarget, GpuWorldData, ScreenState,
 };
 
@@ -127,19 +124,37 @@ fn draw_hud(
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .interactable(false)
             .show(ctx, |ui| {
-                let pct = energy.current / MAX_ENERGY;
-                let color = if pct < 0.10 {
+                let color = if energy.current < 30.0 {
                     egui::Color32::RED
-                } else if pct < 0.30 {
+                } else if energy.current < 90.0 {
                     egui::Color32::YELLOW
                 } else {
                     egui::Color32::CYAN
                 };
                 ui.colored_label(
                     color,
-                    format!("ENERGY  {:.0}/{:.0}", energy.current, MAX_ENERGY),
+                    egui::RichText::new(format!("ENERGY  {:.0}", energy.current)).size(32.0),
                 );
             });
+
+        if energy.current <= 0.0 {
+            egui::Area::new(egui::Id::new("out_of_energy"))
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .interactable(false)
+                .show(ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.colored_label(
+                            egui::Color32::RED,
+                            egui::RichText::new("OUT OF ENERGY").size(48.0),
+                        );
+                        ui.add_space(8.0);
+                        ui.colored_label(
+                            egui::Color32::WHITE,
+                            egui::RichText::new("PRESS ENTER TO RESTART").size(22.0),
+                        );
+                    });
+                });
+        }
 
         let center = egui::pos2(half.x, half.y);
         let painter = ctx.layer_painter(egui::LayerId::new(

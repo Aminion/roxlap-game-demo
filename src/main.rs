@@ -279,7 +279,10 @@ fn main() {
                     scancode: Some(code),
                     ..
                 } => {
-                    if let Some(input) = PlayerInput::from_scancode(code) {
+                    if code == Scancode::Return && resources.get::<Energy>().unwrap().current <= 0.0
+                    {
+                        resources.get_mut::<Energy>().unwrap().current = 200.0;
+                    } else if let Some(input) = PlayerInput::from_scancode(code) {
                         resources
                             .get_mut::<HashSet<PlayerInput>>()
                             .unwrap()

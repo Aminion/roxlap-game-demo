@@ -47,6 +47,7 @@ pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &
             energy.current = (energy.current - cost).max(0.0);
             apply_thrusters(body, bank, dt);
         } else {
+            energy.current = 0.0;
             bank.linear_command = DVec3::ZERO;
             bank.command = DVec3::ZERO;
         }
