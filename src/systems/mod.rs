@@ -1,6 +1,7 @@
 pub mod autopilot;
 pub mod camera;
 pub mod canon_cooldown;
+pub mod crystal;
 pub mod energy;
 pub mod miner_input;
 pub mod newton_body;

@@ -34,6 +34,7 @@ use crate::systems::{
     autopilot::autopilot_system,
     camera::camera_update_system,
     canon_cooldown::canon_cooldown_system,
+    crystal::crystal_system,
     energy::{energy_system, Energy, ENERGY_MAX},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
@@ -233,6 +234,7 @@ fn build_schedule() -> Schedule {
         .flush()
         .add_system(shooting_system())
         .add_system(projectile_system())
+        .add_system(crystal_system())
         // Flush so despawned entities are removed before render.
         .flush()
         .add_thread_local(render_system())
