@@ -132,9 +132,9 @@ pub fn build_asteroid_sprite_model(
     let red_prob = mineral_count as f32 / RED_VOXELS_PER_MINERAL;
     let mut rng = StdRng::seed_from_u64(seed);
     let perlin = PerlinNoise3D::new(noise_seed);
-    let (sx, sy, sz) = {
+    let scale = {
         let mut srng = StdRng::seed_from_u64(scale_seed);
-        (
+        DVec3::new(
             srng.random_range(0.7f64..=1.3),
             srng.random_range(0.7f64..=1.3),
             srng.random_range(0.7f64..=1.3),
@@ -145,11 +145,10 @@ pub fn build_asteroid_sprite_model(
             let col = x + y * vsid;
             color_offsets[col] = colors.len() as u32;
             for z in 0..vsid {
-                let dx = x as f64 + 0.5 - center;
-                let dy = y as f64 + 0.5 - center;
-                let dz = z as f64 + 0.5 - center;
-                let d =
-                    ((dx / sx) * (dx / sx) + (dy / sy) * (dy / sy) + (dz / sz) * (dz / sz)).sqrt();
+                let d = ((DVec3::new(x as f64, y as f64, z as f64) + DVec3::splat(0.5)
+                    - DVec3::splat(center))
+                    / scale)
+                    .length();
                 let noise = perlin.fbm(
                     x as f32 + 0.5,
                     y as f32 + 0.5,
@@ -198,9 +197,9 @@ pub fn generate_mineral_points(
     let center = vsid as f64 / 2.0;
     let radius = center - 0.5;
     let perlin = PerlinNoise3D::new(noise_seed);
-    let (sx, sy, sz) = {
+    let scale = {
         let mut srng = StdRng::seed_from_u64(scale_seed);
-        (
+        DVec3::new(
             srng.random_range(0.7f64..=1.3),
             srng.random_range(0.7f64..=1.3),
             srng.random_range(0.7f64..=1.3),
@@ -211,11 +210,10 @@ pub fn generate_mineral_points(
     for y in 0..vsid {
         for x in 0..vsid {
             for z in 0..vsid {
-                let dx = x as f64 + 0.5 - center;
-                let dy = y as f64 + 0.5 - center;
-                let dz = z as f64 + 0.5 - center;
-                let d =
-                    ((dx / sx) * (dx / sx) + (dy / sy) * (dy / sy) + (dz / sz) * (dz / sz)).sqrt();
+                let d = ((DVec3::new(x as f64, y as f64, z as f64) + DVec3::splat(0.5)
+                    - DVec3::splat(center))
+                    / scale)
+                    .length();
                 let noise = perlin.fbm(
                     x as f32 + 0.5,
                     y as f32 + 0.5,
@@ -252,14 +250,14 @@ pub fn build_crystal_sprite_model() -> SpriteModel {
     let mut dirs: Vec<u32> = Vec::new();
 
     // (x, y, z) for the 7 arm voxels, sorted by column then ascending z.
-    let arm_voxels: &[(u32, u32, u32)] = &[
-        (0, 1, 1),
-        (1, 0, 1),
-        (1, 1, 0),
-        (1, 1, 1),
-        (1, 1, 2),
-        (1, 2, 1),
-        (2, 1, 1),
+    let arm_voxels: &[UVec3] = &[
+        UVec3::new(0, 1, 1),
+        UVec3::new(1, 0, 1),
+        UVec3::new(1, 1, 0),
+        UVec3::new(1, 1, 1),
+        UVec3::new(1, 1, 2),
+        UVec3::new(1, 2, 1),
+        UVec3::new(2, 1, 1),
     ];
 
     for y in 0..DIM {
@@ -268,8 +266,8 @@ pub fn build_crystal_sprite_model() -> SpriteModel {
             color_offsets[col] = colors.len() as u32;
             let mut zs: Vec<u32> = arm_voxels
                 .iter()
-                .filter(|&&(vx, vy, _)| vx == x && vy == y)
-                .map(|&(_, _, vz)| vz)
+                .filter(|v| v.x == x && v.y == y)
+                .map(|v| v.z)
                 .collect();
             zs.sort_unstable();
             for vz in zs {

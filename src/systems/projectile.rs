@@ -1,5 +1,5 @@
 use bytemuck::Zeroable;
-use glam::{DQuat, DVec3, IVec3, UVec3};
+use glam::{DQuat, DVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
 use roxlap_gpu::{GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel};
@@ -133,7 +133,7 @@ pub fn projectile(
         ast_mass: f64,
         ast_orientation: DQuat,
         ast_half_extent: f32,
-        hit_voxel: (u32, u32, u32),
+        hit_voxel: UVec3,
         proj_vel: DVec3,
         proj_mass: f64,
         minerals: Vec<UVec3>,
@@ -217,7 +217,7 @@ pub fn projectile(
 
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
     for hit in ast_hits {
-        let (vx, vy, vz) = hit.hit_voxel;
+        let hv = hit.hit_voxel;
         let (pivot, dims) = {
             let m = sprite_data.registry.model(hit.ast_chain_id);
             (m.pivot, m.dims)
@@ -225,7 +225,7 @@ pub fn projectile(
 
         // Find mineral points inside the carved sphere before we destroy them.
         let carve_r = HIT_CARVE_RADIUS as i32;
-        let hit_voxel_i = IVec3::new(vx as i32, vy as i32, vz as i32);
+        let hit_voxel_i = hv.as_ivec3();
         let hit_minerals: Vec<UVec3> = hit
             .minerals
             .iter()
@@ -243,7 +243,7 @@ pub fn projectile(
                         if dx * dx + dy * dy + dz * dz > r * r {
                             continue;
                         }
-                        let (cx, cy, cz) = (vx as i32 + dx, vy as i32 + dy, vz as i32 + dz);
+                        let (cx, cy, cz) = (hv.x as i32 + dx, hv.y as i32 + dy, hv.z as i32 + dz);
                         if cx >= 0
                             && cy >= 0
                             && cz >= 0
@@ -367,7 +367,7 @@ fn voxel_hit(
     ast_pos: DVec3,
     ast_orientation: DQuat,
     model: &SpriteModel,
-) -> Option<(u32, u32, u32)> {
+) -> Option<UVec3> {
     let local = ast_orientation.inverse() * (proj_pos - ast_pos);
     let vx = (local.x / model.voxel_world_size as f64 + model.pivot[0] as f64).floor() as i64;
     let vy = (local.y / model.voxel_world_size as f64 + model.pivot[1] as f64).floor() as i64;
@@ -381,11 +381,11 @@ fn voxel_hit(
     {
         return None;
     }
-    let (vx, vy, vz) = (vx as u32, vy as u32, vz as u32);
-    let col = (vx + vy * model.dims[0]) as usize;
+    let v = UVec3::new(vx as u32, vy as u32, vz as u32);
+    let col = (v.x + v.y * model.dims[0]) as usize;
     let base = col * model.occ_words_per_col as usize;
-    let occupied = (model.occupancy[base + vz as usize / 32] >> (vz % 32)) & 1 == 1;
-    occupied.then_some((vx, vy, vz))
+    let occupied = (model.occupancy[base + v.z as usize / 32] >> (v.z % 32)) & 1 == 1;
+    occupied.then_some(v)
 }
 
 #[cfg(test)]
