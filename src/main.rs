@@ -26,7 +26,12 @@ use sdl2::{
     EventPump,
 };
 
-use crate::components::{canon::Canon, miner::Miner};
+use crate::components::{
+    asteroid::{AsteroidChainId, CrystalChainId},
+    canon::Canon,
+    miner::Miner,
+    projectile::Projectile,
+};
 use crate::input::PlayerInput;
 use crate::systems::{
     autopilot::autopilot_system,
@@ -241,6 +246,52 @@ fn fov_y(w: u32, h: u32) -> f32 {
     2.0 * f32::atan(h as f32 / w as f32)
 }
 
+fn restart_world(world: &mut World, resources: &mut Resources) {
+    // Collect every chain_id in use (asteroids, crystals, projectiles).
+    let mut chain_ids: Vec<u32> = Vec::new();
+    {
+        let mut q = <&AsteroidChainId>::query();
+        for c in q.iter(world) {
+            chain_ids.push(c.0);
+        }
+        let mut q = <&CrystalChainId>::query();
+        for c in q.iter(world) {
+            chain_ids.push(c.0);
+        }
+        let mut q = <&Projectile>::query();
+        for p in q.iter(world) {
+            chain_ids.push(p.chain_id);
+        }
+    }
+
+    // Strip all GPU sprite instances, then all models.
+    {
+        let mut gpu = resources.get_mut::<GpuRenderer>().unwrap();
+        while gpu.sprite_instance_count() > 0 {
+            gpu.remove_sprite_instance(0);
+        }
+        for chain_id in chain_ids {
+            gpu.remove_sprite_model(chain_id);
+        }
+    }
+
+    resources.get_mut::<SpriteData>().unwrap().registry = SpriteModelRegistry::new();
+
+    // Rebuild ECS world with a fresh miner.
+    *world = World::default();
+    populate_world(world);
+
+    // Reset all runtime resources.
+    resources.get_mut::<Energy>().unwrap().current = 200.0;
+    resources.get_mut::<VisitedChunks>().unwrap().0.clear();
+    resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
+    *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
+    resources.get_mut::<Retrieving>().unwrap().0 = false;
+    resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();
+    *resources.get_mut::<MouseDelta>().unwrap() = Vec2::ZERO;
+    resources.get_mut::<FrameTimer>().unwrap().0 = Instant::now();
+}
+
 fn main() {
     let (window, mut event_pump) = initialize().unwrap();
 
@@ -281,7 +332,7 @@ fn main() {
                 } => {
                     if code == Scancode::Return && resources.get::<Energy>().unwrap().current <= 0.0
                     {
-                        resources.get_mut::<Energy>().unwrap().current = 200.0;
+                        restart_world(&mut world, &mut resources);
                     } else if let Some(input) = PlayerInput::from_scancode(code) {
                         resources
                             .get_mut::<HashSet<PlayerInput>>()
