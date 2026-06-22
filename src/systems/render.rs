@@ -7,7 +7,10 @@ use roxlap_gpu::{
 
 use crate::{
     components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::SpriteId},
-    systems::{energy::Energy, performance_info::PerformanceInfo},
+    systems::{
+        energy::{Energy, MAX_ENERGY},
+        performance_info::PerformanceInfo,
+    },
     AutopilotTarget, GpuWorldData, ScreenState,
 };
 
@@ -124,12 +127,18 @@ fn draw_hud(
             .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -12.0))
             .interactable(false)
             .show(ctx, |ui| {
-                let color = if energy.current < 1.0 {
+                let pct = energy.current / MAX_ENERGY;
+                let color = if pct < 0.10 {
                     egui::Color32::RED
+                } else if pct < 0.30 {
+                    egui::Color32::YELLOW
                 } else {
                     egui::Color32::CYAN
                 };
-                ui.colored_label(color, format!("ENERGY  {:.0}", energy.current));
+                ui.colored_label(
+                    color,
+                    format!("ENERGY  {:.0}/{:.0}", energy.current, MAX_ENERGY),
+                );
             });
 
         let center = egui::pos2(half.x, half.y);

@@ -15,10 +15,16 @@ impl Energy {
     }
 }
 
-const CRYSTAL_REGEN_RATE: f64 = 20.0;
-const CRYSTAL_REGEN_DIST: f64 = 3.0;
+/// Energy cap — prevents unlimited accumulation near crystal clusters.
+pub const MAX_ENERGY: f64 = 300.0;
 
-pub const SHOT_COST: f64 = 10.0;
+/// Energy regenerated per crystal per second while within range.
+const CRYSTAL_REGEN_RATE: f64 = 25.0;
+
+/// Maximum distance from the miner at which a crystal provides regen.
+const CRYSTAL_REGEN_DIST: f64 = 8.0;
+
+pub const SHOT_COST: f64 = 5.0;
 
 #[system]
 #[read_component(Miner)]
@@ -33,11 +39,13 @@ pub fn energy(world: &SubWorld, #[resource] energy: &mut Energy, #[resource] dt:
     let Some(miner_pos) = miner_pos else { return };
 
     let mut crystal_q = <(&CrystalMarker, &NewtonBody)>::query();
-    let near_crystal = crystal_q
+    let near_count = crystal_q
         .iter(world)
-        .any(|(_, body)| body.pos.distance(miner_pos) <= CRYSTAL_REGEN_DIST);
+        .filter(|(_, body)| body.pos.distance(miner_pos) <= CRYSTAL_REGEN_DIST)
+        .count();
 
-    if near_crystal {
-        energy.current += CRYSTAL_REGEN_RATE * dt.0;
+    if near_count > 0 {
+        energy.current =
+            (energy.current + CRYSTAL_REGEN_RATE * near_count as f64 * dt.0).min(MAX_ENERGY);
     }
 }

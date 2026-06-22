@@ -208,7 +208,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
-    resources.insert(Energy::new(100.0));
+    resources.insert(Energy::new(200.0));
     resources.insert(Retrieving(false));
 
     resources

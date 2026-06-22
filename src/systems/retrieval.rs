@@ -8,7 +8,7 @@ use crate::{
 };
 
 const RETRIEVAL_ACCEL: f64 = 30.0;
-const RETRIEVAL_ENERGY_DRAIN: f64 = 10.0;
+const RETRIEVAL_ENERGY_DRAIN: f64 = 5.0;
 
 /// Slab-method ray–AABB test. Returns the entry t along `ray_dir`, or `None`.
 fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, center: DVec3, half: f64) -> Option<f64> {
