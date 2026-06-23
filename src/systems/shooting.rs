@@ -8,7 +8,7 @@ use crate::{
     },
     systems::energy::{Energy, SHOT_COST},
     world::{build_projectile_sprite_model, spawn_sprite},
-    SpriteData,
+    Dt, SpriteData,
 };
 
 const PROJECTILE_SPEED: f64 = 300.0;
@@ -26,10 +26,12 @@ pub fn shooting(
     #[resource] gpu: &mut GpuRenderer,
     #[resource] sprite_data: &mut SpriteData,
     #[resource] energy: &mut Energy,
+    #[resource] dt: &Dt,
 ) {
     let (spawn_pos, spawn_vel) = {
         let mut miner_q = <(&Miner, &NewtonBody, &mut Cannon)>::query();
         let (_, body, canon) = miner_q.iter_mut(world).next().expect("miner missing");
+        canon.cooldown = (canon.cooldown - dt.0).max(0.0);
         if !canon.firing || canon.cooldown > 0.0 || energy.current < SHOT_COST {
             return;
         }

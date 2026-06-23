@@ -1,6 +1,5 @@
 pub mod autopilot;
 pub mod camera;
-pub mod cannon_cooldown;
 pub mod crystal;
 pub mod energy;
 pub mod miner_input;
