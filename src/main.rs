@@ -299,8 +299,8 @@ fn main() {
 
     let mut schedule = build_schedule();
     let mut world = World::default();
-    let mut resources = initial_resources(handle);
     let _window = window;
+    let mut resources = initial_resources(handle);
 
     populate_world(&mut world);
 
