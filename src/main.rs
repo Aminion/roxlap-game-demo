@@ -92,6 +92,11 @@ pub struct LoadedAsteroids(pub HashSet<Entity>);
 /// Seed for all procedural world generation (chunk density noise, asteroid properties).
 pub struct WorldSeed(pub u64);
 
+/// Tombstoned sprite models accumulated since the last `compact_sprite_models` call.
+/// Compact fires only when `populate_chunks` also fires, hiding its cost inside
+/// an already-expensive populate frame.
+pub struct PendingCompact(pub u32);
+
 // --- SDL2 window handle wrapper for wgpu ---
 
 /// Snapshot of an SDL2 window's raw handles for wgpu surface creation.
@@ -210,6 +215,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
+    resources.insert(PendingCompact(0));
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
 
@@ -264,6 +270,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<Energy>().unwrap().current = ENERGY_MAX;
     resources.get_mut::<VisitedChunks>().unwrap().0.clear();
     resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
+    resources.get_mut::<PendingCompact>().unwrap().0 = 0;
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<Retrieving>().unwrap().0 = false;
     resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();

@@ -18,7 +18,7 @@ use crate::{
     world::{
         build_asteroid_sprite_model, generate_mineral_points, spawn_sprite, ASTEROID_VOXEL_SIZE,
     },
-    LoadedAsteroids, SpriteData, VisitedChunks, WorldSeed,
+    LoadedAsteroids, PendingCompact, SpriteData, VisitedChunks, WorldSeed,
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
@@ -45,6 +45,7 @@ pub fn presence_position_update(
     #[resource] gpu: &mut GpuRenderer,
     #[resource] sprite_data: &mut SpriteData,
     #[resource] world_seed: &WorldSeed,
+    #[resource] pending_compact: &mut PendingCompact,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -60,8 +61,10 @@ pub fn presence_position_update(
     };
 
     if let Some(ship_pos) = updated_pos {
-        update_sprites(ship_pos, visited, loaded, gpu, world, commands);
-        populate_chunks(
+        let t0 = std::time::Instant::now();
+        let despawned = update_sprites(ship_pos, visited, loaded, gpu, world, commands);
+        let t1 = std::time::Instant::now();
+        let populated = populate_chunks(
             ship_pos,
             visited,
             loaded,
@@ -70,9 +73,33 @@ pub fn presence_position_update(
             commands,
             world_seed.0,
         );
-        // Reclaim GPU VRAM from tombstoned asteroid models. Chain indices are
-        // preserved by compact so existing Sprite.chain_id values remain valid.
-        gpu.compact_sprite_models(&sprite_data.registry);
+        let t2 = std::time::Instant::now();
+
+        // Compact only when populate fired: we are already paying the populate stall,
+        // so the extra compact cost is hidden. Pure-unload passes stay cheap.
+        pending_compact.0 += despawned as u32;
+        let t3;
+        let compact_label;
+        if populated {
+            gpu.compact_sprite_models(&sprite_data.registry);
+            t3 = std::time::Instant::now();
+            compact_label = format!(
+                "{:.2} ms ({} pending cleared)",
+                (t3 - t2).as_secs_f64() * 1000.0,
+                pending_compact.0
+            );
+            pending_compact.0 = 0;
+        } else {
+            t3 = t2;
+            compact_label = format!("skip ({} pending)", pending_compact.0);
+        }
+        println!(
+            "presence update: {:.2} ms  (unload {:.2}  populate {:.2}  compact {})",
+            (t3 - t0).as_secs_f64() * 1000.0,
+            (t1 - t0).as_secs_f64() * 1000.0,
+            (t2 - t1).as_secs_f64() * 1000.0,
+            compact_label,
+        );
     }
 }
 
@@ -122,6 +149,7 @@ fn chunk_spawn_angular_vel(world_seed: u64, chunk: IVec3) -> DVec3 {
     DVec3::from([3u64, 4, 5].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
 }
 
+/// Returns `true` if at least one new chunk was processed (caller should compact after).
 fn populate_chunks(
     ship_pos: DVec3,
     visited: &mut VisitedChunks,
@@ -130,11 +158,11 @@ fn populate_chunks(
     sprite_data: &mut SpriteData,
     commands: &mut CommandBuffer,
     world_seed: u64,
-) {
+) -> bool {
     let to_generate: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &visited.0).collect();
 
     if to_generate.is_empty() {
-        return;
+        return false;
     }
 
     let perlin = PerlinNoise3D::new(world_seed);
@@ -202,6 +230,7 @@ fn populate_chunks(
         ));
         loaded.0.insert(entity);
     }
+    true
 }
 
 /// Bidirectional slot↔entity index kept in sync with GPU sprite storage.
@@ -283,6 +312,7 @@ pub fn build_sprite_maps(world: &mut SubWorld) -> SpriteMaps {
 }
 
 /// Single pass over all loaded asteroids: fully despawn those that left the presence radius.
+/// Returns the number of asteroids despawned.
 fn update_sprites(
     ship_pos: DVec3,
     visited: &mut VisitedChunks,
@@ -290,7 +320,7 @@ fn update_sprites(
     gpu: &mut GpuRenderer,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
-) {
+) -> usize {
     let center = world_to_chunk(ship_pos);
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
 
@@ -314,11 +344,13 @@ fn update_sprites(
         }
     }
 
+    let despawn_count = to_unload.len();
     for (entity, chunk) in to_unload {
         perform_despawn(entity, &mut maps, world, commands, gpu);
         loaded.0.remove(&entity);
         visited.0.remove(&chunk);
     }
+    despawn_count
 }
 
 #[cfg(test)]
