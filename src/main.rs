@@ -35,7 +35,7 @@ use crate::systems::{
     camera::camera_update_system,
     cannon_cooldown::cannon_cooldown_system,
     crystal::crystal_system,
-    energy::{energy_system, Energy, ENERGY_MAX},
+    energy::{Energy, ENERGY_MAX},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     performance_info::{update_info_system, PerformanceInfo},
@@ -227,7 +227,6 @@ fn build_schedule() -> Schedule {
         .add_system(retrieval_system())
         .add_system(newton_body_system())
         .add_system(cannon_cooldown_system())
-        .add_system(energy_system())
         .add_system(presence_position_update_system())
         // Flush so newly-spawned asteroid entities are in the world before shooting
         // queries them; prevents stale SpriteId slots if a despawn displaces a just-spawned entity.

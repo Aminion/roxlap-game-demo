@@ -20,7 +20,6 @@ impl NewtonBody {
 
 #[cfg(test)]
 mod tests {
-    use super::NewtonBody;
     use crate::{test_utils::make_body, Dt};
     use glam::{DQuat, DVec3};
     use std::f64::consts::FRAC_PI_2;
