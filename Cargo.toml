@@ -5,17 +5,17 @@ authors = ["Aminion <aminion@protonmail.com>"]
 edition = "2021"
 
 [dependencies]
-roxlap-core = { path = "../roxlap/crates/roxlap-core", version = "0.12" }
-roxlap-formats = { path = "../roxlap/crates/roxlap-formats", version = "0.12" }
-roxlap-cavegen = { path = "../roxlap/crates/roxlap-cavegen", version = "0.12" }
-roxlap-gpu = { path = "../roxlap/crates/roxlap-gpu", version = "0.12", features = ["hud"] }
-raw-window-handle = "0.6"
+roxlap-core = "0.13.0"
+roxlap-formats = "0.13.0"
+roxlap-cavegen = "0.13.0"
+roxlap-gpu = { version = "0.13.0", features = ["hud"] }
+raw-window-handle = "0.6.2"
 bytemuck = "1.25.0"
-egui = "0.34"
+egui = "0.34.3"
 glam = "0.33.1"
 crossbeam = "0.8.4"
 rand = "0.10.1"
-log = "0.4.31"
+log = "0.4.33"
 
 [dependencies.sdl2]
 version = "0.38"
@@ -23,7 +23,7 @@ default-features = false
 features = ["raw-window-handle"]
 
 [dev-dependencies]
-proptest = "1"
+proptest = "1.11.0"
 
 [dependencies.legion]
 version = "0.4.0"
