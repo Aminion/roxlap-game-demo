@@ -246,30 +246,17 @@ fn fov_y(w: u32, h: u32) -> f32 {
 }
 
 fn restart_world(world: &mut World, resources: &mut Resources) {
-    // Remove all sprite instances, tombstone all GPU models, then compact.
-    // remove_sprite_model is a tombstone (chain_ids stay stable, no swap-remove),
-    // so iterating 0..registry.len() is safe. compact_sprite_models reclaims the
-    // GPU buffer memory. The CPU registry is then reset so chain_ids restart
-    // from 0 after compaction.
+    // Drop the GPU-resident sprite registry entirely so chain_ids in the new
+    // registry start from 0 and match what the fresh CPU SpriteModelRegistry
+    // will assign. compact_sprite_models would preserve the old tombstoned
+    // chain entries, causing new chain_id=0 instances to index a dead chain
+    // and be silently skipped by cull_bin_upload.
     {
-        let model_count = resources.get::<SpriteData>().unwrap().registry.len() as u32;
         let mut gpu = resources.get_mut::<GpuRenderer>().unwrap();
-        while gpu.sprite_instance_count() > 0 {
-            gpu.remove_sprite_instance(0);
-        }
-        for chain_id in 0..model_count {
-            gpu.remove_sprite_model(chain_id);
-        }
-    }
-    {
-        let sprite_data = resources.get::<SpriteData>().unwrap();
-        resources
-            .get_mut::<GpuRenderer>()
-            .unwrap()
-            .compact_sprite_models(&sprite_data.registry);
+        gpu.set_sprite_instances(&SpriteModelRegistry::new(), &[]);
     }
 
-    // Reset CPU sprite registry so chain_ids restart from 0 after compaction.
+    // Reset CPU sprite registry so chain_ids restart from 0.
     resources.get_mut::<SpriteData>().unwrap().registry = SpriteModelRegistry::new();
 
     // Rebuild ECS world with a fresh miner.
