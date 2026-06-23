@@ -1,7 +1,7 @@
 use legion::{world::SubWorld, *};
 
 use crate::{
-    components::{asteroid::CrystalMarker, miner::Miner, newton_body::NewtonBody},
+    components::{crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody},
     Dt,
 };
 

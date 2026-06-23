@@ -8,11 +8,11 @@ use roxlap_gpu::GpuRenderer;
 use crate::{
     components::{
         aabb::Aabb,
-        asteroid::{AsteroidMarker, AsteroidMinerals, AsteroidVoxelInfo, ChainId},
+        asteroid::{AsteroidMarker, AsteroidMinerals, AsteroidVoxelInfo},
         miner::Miner,
         newton_body::NewtonBody,
         presence_position::PresencePosition,
-        sprite_id::SpriteId,
+        sprite_id::Sprite,
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
     world::{
@@ -37,9 +37,8 @@ const PERLIN_MAX: f32 = 0.866;
 #[system]
 #[read_component(Miner)]
 #[read_component(NewtonBody)]
-#[read_component(ChainId)]
 #[write_component(PresencePosition)]
-#[write_component(SpriteId)]
+#[write_component(Sprite)]
 pub fn presence_position_update(
     #[resource] visited: &mut VisitedChunks,
     #[resource] loaded: &mut LoadedAsteroids,
@@ -71,6 +70,9 @@ pub fn presence_position_update(
             commands,
             world_seed.0,
         );
+        // Reclaim GPU VRAM from tombstoned asteroid models. Chain indices are
+        // preserved by compact so existing Sprite.chain_id values remain valid.
+        gpu.compact_sprite_models(&sprite_data.registry);
     }
 }
 
@@ -175,22 +177,21 @@ fn populate_chunks(
         } else {
             vec![]
         };
-        let (chain_id, slot) = spawn_sprite(
+        let sprite = spawn_sprite(
             &mut sprite_data.registry,
             gpu,
             build_asteroid_sprite_model(h.wrapping_add(6), noise_seed, scale_seed, minerals.len()),
         );
-        let initial_count = sprite_data.registry.model(chain_id).colors.len() as u32;
+        let initial_count = sprite_data.registry.model(sprite.chain_id).colors.len() as u32;
         let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
         let entity = commands.push((
             AsteroidMarker,
-            ChainId(chain_id),
             AsteroidMinerals { points: minerals },
             AsteroidVoxelInfo { initial_count },
             Aabb {
                 half_extent: ASTEROID_VOXEL_SIZE as f32 / 2.0,
             },
-            SpriteId { slot },
+            sprite,
             NewtonBody {
                 mass: 1.0,
                 pos: spawn_pos,
@@ -210,7 +211,7 @@ pub struct SpriteMaps {
 }
 
 /// Update `maps` after a GPU swap-remove moved `displaced_old` → `current_slot`.
-/// Returns the entity whose `SpriteId` needs updating to `current_slot`, if any.
+/// Returns the entity whose `Sprite` needs updating to `current_slot`, if any.
 fn apply_swap_remove(
     current_slot: u32,
     displaced_old: u32,
@@ -232,12 +233,19 @@ fn apply_swap_remove(
 /// (distance-based unload) must remove it from `visited` themselves.
 pub fn perform_despawn(
     entity: Entity,
-    chain_id: u32,
     maps: &mut SpriteMaps,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
     gpu: &mut GpuRenderer,
 ) {
+    let chain_id = match world.entry_ref(entity) {
+        Ok(e) => match e.get_component::<Sprite>() {
+            Ok(s) => s.chain_id,
+            Err(_) => return,
+        },
+        Err(_) => return,
+    };
+
     let current_slot = match maps.entity_to_slot.remove(&entity) {
         Some(s) => s,
         None => return,
@@ -248,7 +256,7 @@ pub fn perform_despawn(
         if let Some(displaced_entity) = apply_swap_remove(current_slot, displaced_old as u32, maps)
         {
             if let Ok(mut entry) = world.entry_mut(displaced_entity) {
-                if let Ok(sprite) = entry.get_component_mut::<SpriteId>() {
+                if let Ok(sprite) = entry.get_component_mut::<Sprite>() {
                     sprite.slot = current_slot;
                 }
             }
@@ -259,11 +267,11 @@ pub fn perform_despawn(
     commands.remove(entity);
 }
 
-/// Build a `SpriteMaps` covering every entity with a `SpriteId`.
+/// Build a `SpriteMaps` covering every entity with a `Sprite`.
 pub fn build_sprite_maps(world: &mut SubWorld) -> SpriteMaps {
     let mut slot_to_entity: HashMap<u32, Entity> = HashMap::new();
     let mut entity_to_slot: HashMap<Entity, u32> = HashMap::new();
-    let mut q = <(Entity, &SpriteId)>::query();
+    let mut q = <(Entity, &Sprite)>::query();
     for (&entity, sprite) in q.iter(world) {
         slot_to_entity.insert(sprite.slot, entity);
         entity_to_slot.insert(entity, sprite.slot);
@@ -286,9 +294,9 @@ fn update_sprites(
     let center = world_to_chunk(ship_pos);
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
 
-    let mut to_unload: Vec<(Entity, IVec3, u32)> = Vec::new();
-    // Covers all sprite entities (asteroids + projectiles) so swap-removes triggered
-    // by asteroid despawns can correctly update any displaced entity.
+    let mut to_unload: Vec<(Entity, IVec3)> = Vec::new();
+    // Covers all sprite entities so swap-removes triggered by asteroid despawns
+    // correctly update any displaced entity (including projectiles/crystals).
     let mut maps = build_sprite_maps(world);
 
     // Decide which asteroids are out of range.
@@ -301,16 +309,13 @@ fn update_sprites(
         };
         let chunk = world_to_chunk(body.pos);
         let d = chunk - center;
-        let Ok(chain) = entry.get_component::<ChainId>() else {
-            continue;
-        };
         if d.dot(d) > r2 {
-            to_unload.push((entity, chunk, chain.0));
+            to_unload.push((entity, chunk));
         }
     }
 
-    for (entity, chunk, chain_id) in to_unload {
-        perform_despawn(entity, chain_id, &mut maps, world, commands, gpu);
+    for (entity, chunk) in to_unload {
+        perform_despawn(entity, &mut maps, world, commands, gpu);
         loaded.0.remove(&entity);
         visited.0.remove(&chunk);
     }

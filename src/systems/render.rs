@@ -6,7 +6,7 @@ use roxlap_gpu::{
 };
 
 use crate::{
-    components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::SpriteId},
+    components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::Sprite},
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
         performance_info::PerformanceInfo,
@@ -17,7 +17,7 @@ use crate::{
 #[allow(clippy::too_many_arguments)]
 #[system]
 #[read_component(CameraComponent)]
-#[read_component(SpriteId)]
+#[read_component(Sprite)]
 #[read_component(NewtonBody)]
 pub fn render(
     #[resource] gpu: &mut GpuRenderer,
@@ -59,11 +59,11 @@ pub fn render(
                 count
             ];
 
-            let mut q = <(&SpriteId, &NewtonBody)>::query();
+            let mut q = <(&Sprite, &NewtonBody)>::query();
             for (sprite, b) in q.iter(world) {
                 let slot = sprite.slot as usize;
                 if slot < count {
-                    transforms[slot] = sprite_from_body(b);
+                    transforms[slot] = sprite_from_body(sprite.chain_id, b);
                 }
             }
 
@@ -190,7 +190,7 @@ fn draw_hud(
     );
 }
 
-pub(crate) fn sprite_from_body(b: &NewtonBody) -> SpriteInstance {
+pub(crate) fn sprite_from_body(chain_id: u32, b: &NewtonBody) -> SpriteInstance {
     let s = (b.orientation * DVec3::X).as_vec3();
     let h = (b.orientation * DVec3::Y).as_vec3();
     let f = (b.orientation * DVec3::Z).as_vec3();
@@ -202,7 +202,7 @@ pub(crate) fn sprite_from_body(b: &NewtonBody) -> SpriteInstance {
     ];
     transform.pos = b.pos.as_vec3().to_array();
     SpriteInstance {
-        model_id: 0,
+        model_id: chain_id,
         transform,
     }
 }

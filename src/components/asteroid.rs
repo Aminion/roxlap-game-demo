@@ -1,7 +1,5 @@
 pub struct AsteroidMarker;
 
-pub struct ChainId(pub u32);
-
 /// Model-local voxel coordinates of embedded mineral cores. Each point spawns
 /// a crystal when the carve sphere reaches it.
 pub struct AsteroidMinerals {
@@ -13,5 +11,3 @@ pub struct AsteroidMinerals {
 pub struct AsteroidVoxelInfo {
     pub initial_count: u32,
 }
-
-pub struct CrystalMarker;

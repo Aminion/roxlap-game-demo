@@ -2,7 +2,7 @@ use glam::DVec3;
 use legion::{world::SubWorld, *};
 
 use crate::{
-    components::{aabb::Aabb, asteroid::CrystalMarker, miner::Miner, newton_body::NewtonBody},
+    components::{aabb::Aabb, crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody},
     systems::energy::Energy,
     Dt, Retrieving,
 };

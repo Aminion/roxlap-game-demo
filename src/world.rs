@@ -12,7 +12,7 @@ use roxlap_gpu::{
 
 use crate::components::{
     camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
-    presence_position::PresencePosition, thruster::ThrusterBank,
+    presence_position::PresencePosition, sprite_id::Sprite, thruster::ThrusterBank,
 };
 
 pub const ASTEROID_VOXEL_SIZE: u32 = 16;
@@ -113,12 +113,11 @@ const ASTEROID_NOISE_AMP: f64 = 3.5;
 const MINERAL_SURFACE_BUFFER: f64 = 2.0;
 
 /// Register a sprite model and append one GPU instance for it.
-/// Returns `(chain_id, slot)`.
 pub fn spawn_sprite(
     registry: &mut SpriteModelRegistry,
     gpu: &mut GpuRenderer,
     model: SpriteModel,
-) -> (u32, u32) {
+) -> Sprite {
     let chain_id = registry.add(model);
     gpu.add_sprite_model(registry, chain_id);
     let slot = gpu.append_sprite_instances(
@@ -128,7 +127,7 @@ pub fn spawn_sprite(
             transform: SpriteInstanceTransform::zeroed(),
         }],
     );
-    (chain_id, slot)
+    Sprite { slot, chain_id }
 }
 
 fn asteroid_scale(scale_seed: u64) -> DVec3 {

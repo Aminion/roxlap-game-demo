@@ -6,10 +6,11 @@ use roxlap_gpu::{GpuRenderer, SpriteModel};
 use crate::{
     components::{
         aabb::Aabb,
-        asteroid::{AsteroidMinerals, AsteroidVoxelInfo, ChainId, CrystalMarker},
+        asteroid::{AsteroidMinerals, AsteroidVoxelInfo},
+        crystal::CrystalMarker,
         newton_body::NewtonBody,
         projectile::Projectile,
-        sprite_id::SpriteId,
+        sprite_id::Sprite,
     },
     systems::presence_position::{build_sprite_maps, perform_despawn},
     world::{build_crystal_sprite_model, spawn_sprite},
@@ -31,10 +32,9 @@ const SOLID_SPHERE_INERTIA: f64 = 0.4;
 #[write_component(Projectile)]
 #[write_component(NewtonBody)]
 #[read_component(Aabb)]
-#[read_component(ChainId)]
 #[read_component(AsteroidVoxelInfo)]
 #[write_component(AsteroidMinerals)]
-#[write_component(SpriteId)]
+#[write_component(Sprite)]
 pub fn projectile(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -50,12 +50,11 @@ pub fn projectile(
         vel: DVec3,
         mass: f64,
         lifetime: f64,
-        chain_id: u32,
     }
     let mut projectiles: Vec<ProjState> = Vec::new();
     {
-        let mut q = <(Entity, &mut Projectile, &NewtonBody, &ChainId)>::query();
-        for (entity, proj, body, chain) in q.iter_mut(world) {
+        let mut q = <(Entity, &mut Projectile, &NewtonBody, &Sprite)>::query();
+        for (entity, proj, body, _sprite) in q.iter_mut(world) {
             proj.lifetime -= dt.0;
             projectiles.push(ProjState {
                 entity: *entity,
@@ -63,7 +62,6 @@ pub fn projectile(
                 vel: body.vel,
                 mass: body.mass,
                 lifetime: proj.lifetime,
-                chain_id: chain.0,
             });
         }
     }
@@ -78,7 +76,6 @@ pub fn projectile(
         half_extent: f32,
         mass: f64,
         chain_id: u32,
-        minerals: Vec<UVec3>,
         initial_voxel_count: u32,
     }
     let mut asteroids: Vec<AstState> = Vec::new();
@@ -92,13 +89,9 @@ pub fn projectile(
         let Ok(aabb) = entry.get_component::<Aabb>() else {
             continue;
         };
-        let Ok(chain) = entry.get_component::<ChainId>() else {
+        let Ok(sprite) = entry.get_component::<Sprite>() else {
             continue;
         };
-        let minerals = entry
-            .get_component::<AsteroidMinerals>()
-            .map(|m| m.points.clone())
-            .unwrap_or_default();
         let initial_voxel_count = entry
             .get_component::<AsteroidVoxelInfo>()
             .map(|v| v.initial_count)
@@ -111,8 +104,7 @@ pub fn projectile(
             orientation: body.orientation,
             half_extent: aabb.half_extent,
             mass: body.mass,
-            chain_id: chain.0,
-            minerals,
+            chain_id: sprite.chain_id,
             initial_voxel_count,
         });
     }
@@ -130,15 +122,14 @@ pub fn projectile(
         hit_voxel: UVec3,
         proj_vel: DVec3,
         proj_mass: f64,
-        minerals: Vec<UVec3>,
         initial_voxel_count: u32,
     }
-    let mut proj_to_remove: Vec<(Entity, u32)> = Vec::new(); // (entity, chain_id)
+    let mut proj_to_remove: Vec<Entity> = Vec::new();
     let mut ast_hits: Vec<HitData> = Vec::new();
 
     for p in &projectiles {
         if p.lifetime <= 0.0 {
-            proj_to_remove.push((p.entity, p.chain_id));
+            proj_to_remove.push(p.entity);
             continue;
         }
         for a in &asteroids {
@@ -155,7 +146,7 @@ pub fn projectile(
                 None
             };
             if let Some(hit_voxel) = hit_voxel {
-                proj_to_remove.push((p.entity, p.chain_id));
+                proj_to_remove.push(p.entity);
                 if !ast_hits.iter().any(|h| h.ast_entity == a.entity) {
                     ast_hits.push(HitData {
                         ast_entity: a.entity,
@@ -169,7 +160,6 @@ pub fn projectile(
                         hit_voxel,
                         proj_vel: p.vel,
                         proj_mass: p.mass,
-                        minerals: a.minerals.clone(),
                         initial_voxel_count: a.initial_voxel_count,
                     });
                 }
@@ -187,8 +177,8 @@ pub fn projectile(
     let mut maps = build_sprite_maps(world);
 
     // Despawn expired/hit projectiles.
-    for (proj_entity, chain_id) in &proj_to_remove {
-        perform_despawn(*proj_entity, *chain_id, &mut maps, world, commands, gpu);
+    for proj_entity in &proj_to_remove {
+        perform_despawn(*proj_entity, &mut maps, world, commands, gpu);
     }
 
     // Crystal spawn data collected during hit processing; spawned after all despawns so
@@ -200,6 +190,8 @@ pub fn projectile(
     }
     let mut pending_crystals: Vec<PendingCrystal> = Vec::new();
 
+    let carve_r = HIT_CARVE_RADIUS as i32;
+
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
     for hit in ast_hits {
         let hv = hit.hit_voxel;
@@ -208,15 +200,26 @@ pub fn projectile(
             (m.pivot, m.dims)
         };
 
-        // Find mineral points inside the carved sphere before we destroy them.
-        let carve_r = HIT_CARVE_RADIUS as i32;
         let hit_voxel_i = hv.as_ivec3();
-        let hit_minerals: Vec<UVec3> = hit
-            .minerals
-            .iter()
-            .filter(|p| (p.as_ivec3() - hit_voxel_i).length_squared() <= carve_r * carve_r)
-            .copied()
-            .collect();
+
+        // Read minerals from the world only for asteroids that were actually hit.
+        let (hit_minerals, all_minerals) = match world.entry_ref(hit.ast_entity) {
+            Ok(entry) => match entry.get_component::<AsteroidMinerals>() {
+                Ok(m) => {
+                    let all = m.points.clone();
+                    let hit_m = all
+                        .iter()
+                        .filter(|p| {
+                            (p.as_ivec3() - hit_voxel_i).length_squared() <= carve_r * carve_r
+                        })
+                        .copied()
+                        .collect();
+                    (hit_m, all)
+                }
+                Err(_) => (vec![], vec![]),
+            },
+            Err(_) => (vec![], vec![]),
+        };
 
         // Carve a sphere of HIT_CARVE_RADIUS centred on the hit voxel.
         let (empty, current_voxel_count) = {
@@ -248,7 +251,7 @@ pub fn projectile(
         // On a normal carve only hit_minerals spawn; on full destruction all remaining
         // mineral points do (so the killing blow never silently swallows crystals).
         let crystals_to_spawn: &[UVec3] = if destroy {
-            &hit.minerals
+            &all_minerals
         } else {
             &hit_minerals
         };
@@ -276,14 +279,7 @@ pub fn projectile(
         gpu.update_sprite_model(&sprite_data.registry, hit.ast_chain_id);
 
         if destroy {
-            perform_despawn(
-                hit.ast_entity,
-                hit.ast_chain_id,
-                &mut maps,
-                world,
-                commands,
-                gpu,
-            );
+            perform_despawn(hit.ast_entity, &mut maps, world, commands, gpu);
             loaded.0.remove(&hit.ast_entity);
         } else {
             // Apply linear and angular impulse from the projectile hit.
@@ -317,11 +313,9 @@ pub fn projectile(
 
     // All despawns done — safe to append crystals; their slots won't be displaced.
     for c in pending_crystals {
-        let (c_chain, c_slot) =
-            spawn_sprite(&mut sprite_data.registry, gpu, build_crystal_sprite_model());
+        let sprite = spawn_sprite(&mut sprite_data.registry, gpu, build_crystal_sprite_model());
         commands.push((
             CrystalMarker,
-            ChainId(c_chain),
             NewtonBody {
                 mass: 0.01,
                 pos: c.pos,
@@ -329,7 +323,7 @@ pub fn projectile(
                 orientation: DQuat::IDENTITY,
                 angular_vel: c.spin,
             },
-            SpriteId { slot: c_slot },
+            sprite,
             Aabb { half_extent: 1.5 },
         ));
     }
