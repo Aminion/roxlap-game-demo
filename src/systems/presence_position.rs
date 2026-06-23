@@ -18,7 +18,8 @@ use crate::{
     world::{
         build_asteroid_sprite_model, generate_mineral_points, spawn_sprite, ASTEROID_VOXEL_SIZE,
     },
-    LoadedAsteroids, PendingCompact, SpriteData, VisitedChunks, WorldSeed,
+    ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, SpriteData, VisitedChunks,
+    WorldSeed,
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
@@ -34,6 +35,10 @@ const CHUNK_NOISE_OCTAVES: u32 = 3;
 /// Perlin outputs ≈ ±0.866 (theoretical max √3/2); divide by this to normalise to ±1.
 const PERLIN_MAX: f32 = 0.866;
 
+/// Per-frame generation budget: stop draining the chunk queue after this many seconds.
+/// Guarantees at least one chunk per frame regardless of cost.
+const GENERATE_BUDGET_SECS: f64 = 0.008;
+
 #[system]
 #[read_component(Miner)]
 #[read_component(NewtonBody)]
@@ -46,61 +51,226 @@ pub fn presence_position_update(
     #[resource] sprite_data: &mut SpriteData,
     #[resource] world_seed: &WorldSeed,
     #[resource] pending_compact: &mut PendingCompact,
+    #[resource] chunk_queue: &mut ChunkQueue,
+    #[resource] queued_chunks: &mut QueuedChunks,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
-    let updated_pos = {
+    let (ship_pos, updated_pos) = {
         let mut query = <(&Miner, &NewtonBody, &mut PresencePosition)>::query();
         let (_, body, presence) = query.iter_mut(world).next().expect("miner missing");
-        if body.pos.distance_squared(presence.0) > UPDATE_DIST_SQ {
-            presence.0 = body.pos;
-            Some(body.pos)
+        let pos = body.pos;
+        let updated = if pos.distance_squared(presence.0) > UPDATE_DIST_SQ {
+            presence.0 = pos;
+            true
         } else {
-            None
-        }
+            false
+        };
+        (pos, updated)
     };
 
-    if let Some(ship_pos) = updated_pos {
+    if updated_pos {
         let t0 = std::time::Instant::now();
         let despawned = update_sprites(ship_pos, visited, loaded, gpu, world, commands);
         let t1 = std::time::Instant::now();
-        let populated = populate_chunks(
-            ship_pos,
+        let enqueued = enqueue_chunks(ship_pos, visited, queued_chunks, chunk_queue);
+        let t2 = std::time::Instant::now();
+        pending_compact.0 += despawned as u32;
+        println!(
+            "presence threshold: {:.2}ms unload ({} despawned), {} enqueued ({:.2}ms), queue depth {}",
+            (t1 - t0).as_secs_f64() * 1000.0,
+            despawned,
+            enqueued,
+            (t2 - t1).as_secs_f64() * 1000.0,
+            chunk_queue.0.len(),
+        );
+    }
+
+    let was_nonempty = !chunk_queue.0.is_empty();
+    drain_chunk_queue(
+        ship_pos,
+        chunk_queue,
+        queued_chunks,
+        visited,
+        loaded,
+        gpu,
+        sprite_data,
+        commands,
+        world_seed.0,
+    );
+    let queue_now_empty = chunk_queue.0.is_empty();
+
+    // Compact when generation finishes (queue just drained) or on a revisit crossing
+    // that produced unloads but no new chunks (pure-unload, queue stayed empty).
+    let should_compact = (was_nonempty && queue_now_empty)
+        || (updated_pos && queue_now_empty && pending_compact.0 > 0);
+
+    if should_compact {
+        let t0 = std::time::Instant::now();
+        gpu.compact_sprite_models(&sprite_data.registry);
+        println!(
+            "compact: {:.2}ms ({} pending cleared)",
+            t0.elapsed().as_secs_f64() * 1000.0,
+            pending_compact.0,
+        );
+        pending_compact.0 = 0;
+    }
+}
+
+/// Enqueue all chunks within load radius that are neither visited nor already queued.
+/// Returns the number of chunks added.
+fn enqueue_chunks(
+    ship_pos: DVec3,
+    visited: &VisitedChunks,
+    queued_chunks: &mut QueuedChunks,
+    chunk_queue: &mut ChunkQueue,
+) -> usize {
+    let to_enqueue: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &visited.0)
+        .filter(|c| !queued_chunks.0.contains(c))
+        .collect();
+    let count = to_enqueue.len();
+    for chunk in to_enqueue {
+        // Mark as queued immediately so subsequent threshold crossings don't re-enqueue.
+        // `visited` is only updated when the chunk is actually generated.
+        chunk_queue.0.push_back(chunk);
+        queued_chunks.0.insert(chunk);
+    }
+    count
+}
+
+/// Drain the chunk queue up to `GENERATE_BUDGET_SECS` per frame.
+/// Prunes entries that have drifted outside the load radius (ship moved away).
+/// Guarantees at least one chunk is generated if the queue is non-empty.
+fn drain_chunk_queue(
+    ship_pos: DVec3,
+    chunk_queue: &mut ChunkQueue,
+    queued_chunks: &mut QueuedChunks,
+    visited: &mut VisitedChunks,
+    loaded: &mut LoadedAsteroids,
+    gpu: &mut GpuRenderer,
+    sprite_data: &mut SpriteData,
+    commands: &mut CommandBuffer,
+    world_seed: u64,
+) {
+    if chunk_queue.0.is_empty() {
+        return;
+    }
+
+    let center = world_to_chunk(ship_pos);
+    let r2 = LOAD_RADIUS * LOAD_RADIUS;
+    let perlin = PerlinNoise3D::new(world_seed);
+    let t0 = std::time::Instant::now();
+    let mut count = 0usize;
+
+    loop {
+        // Drain stale front entries (ship moved away before they were generated).
+        loop {
+            match chunk_queue.0.front() {
+                Some(&front) => {
+                    let d = front - center;
+                    if d.dot(d) > r2 {
+                        chunk_queue.0.pop_front();
+                        queued_chunks.0.remove(&front);
+                    } else {
+                        break;
+                    }
+                }
+                None => return,
+            }
+        }
+
+        // Honor budget after the first chunk so we always make forward progress.
+        if count > 0 && t0.elapsed().as_secs_f64() > GENERATE_BUDGET_SECS {
+            break;
+        }
+
+        let chunk = chunk_queue.0.pop_front().unwrap();
+        queued_chunks.0.remove(&chunk);
+        generate_chunk(
+            chunk,
+            &perlin,
             visited,
             loaded,
             gpu,
             sprite_data,
             commands,
-            world_seed.0,
+            world_seed,
         );
-        let t2 = std::time::Instant::now();
-
-        // Compact only when populate fired: we are already paying the populate stall,
-        // so the extra compact cost is hidden. Pure-unload passes stay cheap.
-        pending_compact.0 += despawned as u32;
-        let t3;
-        let compact_label;
-        if populated {
-            gpu.compact_sprite_models(&sprite_data.registry);
-            t3 = std::time::Instant::now();
-            compact_label = format!(
-                "{:.2} ms ({} pending cleared)",
-                (t3 - t2).as_secs_f64() * 1000.0,
-                pending_compact.0
-            );
-            pending_compact.0 = 0;
-        } else {
-            t3 = t2;
-            compact_label = format!("skip ({} pending)", pending_compact.0);
-        }
-        println!(
-            "presence update: {:.2} ms  (unload {:.2}  populate {:.2}  compact {})",
-            (t3 - t0).as_secs_f64() * 1000.0,
-            (t1 - t0).as_secs_f64() * 1000.0,
-            (t2 - t1).as_secs_f64() * 1000.0,
-            compact_label,
-        );
+        count += 1;
     }
+}
+
+/// Generate a single chunk: run density noise, conditionally spawn an asteroid.
+fn generate_chunk(
+    chunk: IVec3,
+    perlin: &PerlinNoise3D,
+    visited: &mut VisitedChunks,
+    loaded: &mut LoadedAsteroids,
+    gpu: &mut GpuRenderer,
+    sprite_data: &mut SpriteData,
+    commands: &mut CommandBuffer,
+    world_seed: u64,
+) {
+    let raw = perlin.fbm(
+        chunk.x as f32,
+        chunk.y as f32,
+        chunk.z as f32,
+        CHUNK_NOISE_OCTAVES,
+        CHUNK_NOISE_FREQ,
+    );
+    let density = ((raw / PERLIN_MAX) + 1.0) * 0.5;
+    let density = density.clamp(0.0, 1.0);
+    // Smoothstep S-curve: steepens void/dense boundaries without shifting the midpoint.
+    let density = density * density * (3.0 - 2.0 * density);
+
+    visited.0.insert(chunk);
+
+    // Deterministic per-chunk spawn decision: skip if hash falls outside density.
+    if chunk_spawn_hash(world_seed, chunk) >= density {
+        return;
+    }
+
+    let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
+    let spawn_pos = chunk_centre + chunk_spawn_offset(world_seed, chunk);
+    let h = chunk_hash_base(world_seed, chunk);
+    // Top bit of hash index 8 gates crystal presence (~50 % of asteroids).
+    let has_crystals = splitmix64(h.wrapping_add(8)) >> 63 == 0;
+    let noise_seed = h.wrapping_add(9);
+    let scale_seed = h.wrapping_add(10);
+    let minerals = if has_crystals {
+        generate_mineral_points(
+            ASTEROID_VOXEL_SIZE,
+            h.wrapping_add(7),
+            noise_seed,
+            scale_seed,
+        )
+    } else {
+        vec![]
+    };
+    let sprite = spawn_sprite(
+        &mut sprite_data.registry,
+        gpu,
+        build_asteroid_sprite_model(h.wrapping_add(6), noise_seed, scale_seed, minerals.len()),
+    );
+    let initial_count = sprite_data.registry.model(sprite.chain_id).colors.len() as u32;
+    let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
+    let entity = commands.push((
+        AsteroidMarker,
+        AsteroidMinerals { points: minerals },
+        AsteroidVoxelInfo { initial_count },
+        Aabb {
+            half_extent: ASTEROID_VOXEL_SIZE as f32 / 2.0,
+        },
+        sprite,
+        NewtonBody {
+            mass: 1.0,
+            pos: spawn_pos,
+            vel: DVec3::ZERO,
+            orientation: DQuat::IDENTITY,
+            angular_vel,
+        },
+    ));
+    loaded.0.insert(entity);
 }
 
 fn splitmix64(mut h: u64) -> u64 {
@@ -147,90 +317,6 @@ fn chunk_spawn_angular_vel(world_seed: u64, chunk: IVec3) -> DVec3 {
     let h = chunk_hash_base(world_seed, chunk);
     // Indices 3/4/5 are independent from the position offset indices 0/1/2.
     DVec3::from([3u64, 4, 5].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
-}
-
-/// Returns `true` if at least one new chunk was processed (caller should compact after).
-fn populate_chunks(
-    ship_pos: DVec3,
-    visited: &mut VisitedChunks,
-    loaded: &mut LoadedAsteroids,
-    gpu: &mut GpuRenderer,
-    sprite_data: &mut SpriteData,
-    commands: &mut CommandBuffer,
-    world_seed: u64,
-) -> bool {
-    let to_generate: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &visited.0).collect();
-
-    if to_generate.is_empty() {
-        return false;
-    }
-
-    let perlin = PerlinNoise3D::new(world_seed);
-
-    for chunk in to_generate {
-        // Sample regional density: normalise Perlin's ±0.866 output to [0, 1].
-        let raw = perlin.fbm(
-            chunk.x as f32,
-            chunk.y as f32,
-            chunk.z as f32,
-            CHUNK_NOISE_OCTAVES,
-            CHUNK_NOISE_FREQ,
-        );
-        let density = ((raw / PERLIN_MAX) + 1.0) * 0.5;
-        let density = density.clamp(0.0, 1.0);
-        // Smoothstep S-curve: steepens void/dense boundaries without shifting the midpoint.
-        let density = density * density * (3.0 - 2.0 * density);
-
-        visited.0.insert(chunk);
-
-        // Deterministic per-chunk spawn decision: skip if hash falls outside density.
-        if chunk_spawn_hash(world_seed, chunk) >= density {
-            continue;
-        }
-
-        let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
-        let spawn_pos = chunk_centre + chunk_spawn_offset(world_seed, chunk);
-        let h = chunk_hash_base(world_seed, chunk);
-        // Top bit of hash index 8 gates crystal presence (~50 % of asteroids).
-        let has_crystals = splitmix64(h.wrapping_add(8)) >> 63 == 0;
-        let noise_seed = h.wrapping_add(9);
-        let scale_seed = h.wrapping_add(10);
-        let minerals = if has_crystals {
-            generate_mineral_points(
-                ASTEROID_VOXEL_SIZE,
-                h.wrapping_add(7),
-                noise_seed,
-                scale_seed,
-            )
-        } else {
-            vec![]
-        };
-        let sprite = spawn_sprite(
-            &mut sprite_data.registry,
-            gpu,
-            build_asteroid_sprite_model(h.wrapping_add(6), noise_seed, scale_seed, minerals.len()),
-        );
-        let initial_count = sprite_data.registry.model(sprite.chain_id).colors.len() as u32;
-        let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
-        let entity = commands.push((
-            AsteroidMarker,
-            AsteroidMinerals { points: minerals },
-            AsteroidVoxelInfo { initial_count },
-            Aabb {
-                half_extent: ASTEROID_VOXEL_SIZE as f32 / 2.0,
-            },
-            sprite,
-            NewtonBody {
-                mass: 1.0,
-                pos: spawn_pos,
-                vel: DVec3::ZERO,
-                orientation: DQuat::IDENTITY,
-                angular_vel,
-            },
-        ));
-        loaded.0.insert(entity);
-    }
-    true
 }
 
 /// Bidirectional slot↔entity index kept in sync with GPU sprite storage.

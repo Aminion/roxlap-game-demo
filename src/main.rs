@@ -7,7 +7,7 @@ mod systems;
 mod test_utils;
 mod world;
 
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -93,9 +93,16 @@ pub struct LoadedAsteroids(pub HashSet<Entity>);
 pub struct WorldSeed(pub u64);
 
 /// Tombstoned sprite models accumulated since the last `compact_sprite_models` call.
-/// Compact fires only when `populate_chunks` also fires, hiding its cost inside
-/// an already-expensive populate frame.
+/// Compact fires when the chunk generation queue empties (or on threshold revisits
+/// with pending tombstones), so its cost lands on a frame already paying generation.
 pub struct PendingCompact(pub u32);
+
+/// FIFO of chunk coordinates waiting to be generated, drained a few per frame.
+pub struct ChunkQueue(pub VecDeque<IVec3>);
+
+/// Set mirror of `ChunkQueue` for O(1) membership tests.
+/// Invariant: exactly the chunks currently in `ChunkQueue.0`.
+pub struct QueuedChunks(pub HashSet<IVec3>);
 
 // --- SDL2 window handle wrapper for wgpu ---
 
@@ -216,6 +223,8 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
     resources.insert(PendingCompact(0));
+    resources.insert(ChunkQueue(VecDeque::new()));
+    resources.insert(QueuedChunks(HashSet::new()));
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
 
@@ -271,6 +280,8 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<VisitedChunks>().unwrap().0.clear();
     resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
     resources.get_mut::<PendingCompact>().unwrap().0 = 0;
+    resources.get_mut::<ChunkQueue>().unwrap().0.clear();
+    resources.get_mut::<QueuedChunks>().unwrap().0.clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<Retrieving>().unwrap().0 = false;
     resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();
