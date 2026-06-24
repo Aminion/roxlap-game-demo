@@ -6,6 +6,37 @@ pub fn reject(v: DVec3, axis: DVec3) -> DVec3 {
     v - axis * v.dot(axis)
 }
 
+/// Bijective u64→u64 hash (xor-shift-multiply finalizer from SplitMix64).
+/// Strong avalanche: a 1-bit input change flips ~32 output bits, so
+/// splitmix64(h+0)..splitmix64(h+N) are statistically independent — safe
+/// to use as separate random streams without a sequential PRNG.
+pub fn splitmix64(mut h: u64) -> u64 {
+    h ^= h >> 30;
+    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
+    h ^= h >> 27;
+    h = h.wrapping_mul(0x94d049bb133111eb);
+    h ^= h >> 31;
+    h
+}
+
+/// Maps the top 24 bits of a hash word to [-1, 1).
+pub fn hash_to_signed(v: u64) -> f64 {
+    (v >> 40) as f64 / 8_388_608.0 - 1.0
+}
+
+/// Slab-method ray–AABB test. Returns the entry t along `ray_dir`, or `None`.
+pub fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, center: DVec3, half: f64) -> Option<f64> {
+    let inv = ray_dir.recip();
+    let t1 = (center - half - ray_origin) * inv;
+    let t2 = (center + half - ray_origin) * inv;
+    let t_min = t1.min(t2).max_element();
+    let t_max = t1.max(t2).min_element();
+    if t_max < t_min || t_max < 0.0 {
+        return None;
+    }
+    Some(if t_min >= 0.0 { t_min } else { t_max })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

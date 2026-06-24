@@ -3,6 +3,7 @@ use legion::{world::SubWorld, *};
 
 use crate::{
     components::{aabb::Aabb, crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody},
+    math::ray_aabb,
     systems::energy::Energy,
     Dt, Retrieving,
 };
@@ -10,18 +11,6 @@ use crate::{
 const RETRIEVAL_ACCEL: f64 = 30.0;
 const RETRIEVAL_ENERGY_DRAIN: f64 = 5.0;
 
-/// Slab-method ray–AABB test. Returns the entry t along `ray_dir`, or `None`.
-fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, center: DVec3, half: f64) -> Option<f64> {
-    let inv = ray_dir.recip();
-    let t1 = (center - half - ray_origin) * inv;
-    let t2 = (center + half - ray_origin) * inv;
-    let t_min = t1.min(t2).max_element();
-    let t_max = t1.max(t2).min_element();
-    if t_max < t_min || t_max < 0.0 {
-        return None;
-    }
-    Some(if t_min >= 0.0 { t_min } else { t_max })
-}
 
 #[system]
 #[read_component(Miner)]

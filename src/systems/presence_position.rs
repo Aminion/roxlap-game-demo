@@ -16,6 +16,7 @@ use crate::{
         sprite_id::Sprite,
     },
     generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
+    math::{hash_to_signed, splitmix64},
     world::{build_asteroid, spawn_sprite, ASTEROID_VOXEL_SIZE},
     ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, SpriteData, VisitedChunks,
     WorldSeed,
@@ -37,6 +38,9 @@ const PERLIN_MAX: f32 = 0.866;
 /// Number of chunks pulled from the queue and processed per frame.
 /// The compute phase runs in parallel, so wall time ≈ single-chunk cost / thread count.
 const CHUNK_BATCH_SIZE: usize = 32;
+
+/// Fraction of asteroids that contain crystal deposits. Range [0.0, 1.0].
+const CRYSTAL_SPAWN_CHANCE: f32 = 0.01;
 
 #[system]
 #[read_component(Miner)]
@@ -153,7 +157,7 @@ fn compute_chunk(chunk: IVec3, world_seed: u64) -> ChunkComputeResult {
     let h = chunk_hash_base(world_seed, chunk);
     let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
     let spawn_pos = chunk_centre + chunk_spawn_offset(h);
-    let has_crystals = splitmix64(h.wrapping_add(8)) >> 63 == 0;
+    let has_crystals = (splitmix64(h.wrapping_add(8)) >> 40) as f32 / 16_777_216.0 < CRYSTAL_SPAWN_CHANCE;
     let noise_seed = h.wrapping_add(9);
     let scale_seed = h.wrapping_add(10);
     let (model, minerals) = build_asteroid(
@@ -259,15 +263,10 @@ fn drain_chunk_queue(
     }
 }
 
-fn splitmix64(mut h: u64) -> u64 {
-    h ^= h >> 30;
-    h = h.wrapping_mul(0xbf58476d1ce4e5b9);
-    h ^= h >> 27;
-    h = h.wrapping_mul(0x94d049bb133111eb);
-    h ^= h >> 31;
-    h
-}
-
+/// Combine world seed and chunk coordinates into one u64 base hash.
+/// Each axis is multiplied by a distinct irrational-derived constant
+/// (φ, π, e scaled to u64) so that chunks differing on only one axis
+/// produce unrelated sums before the splitmix64 avalanche pass.
 fn chunk_hash_base(world_seed: u64, chunk: IVec3) -> u64 {
     splitmix64(
         world_seed
@@ -286,11 +285,6 @@ fn chunk_spawn_hash(world_seed: u64, chunk: IVec3) -> f32 {
 /// Max axis offset from chunk centre: CHUNK_SIZE/2 − half_extent = 32 − 8 = 24.
 /// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
 const SPAWN_SAFE_RANGE: f64 = 24.0;
-
-/// Maps the top 24 bits of a hash word to [-1, 1).
-fn hash_to_signed(v: u64) -> f64 {
-    (v >> 40) as f64 / 8_388_608.0 - 1.0
-}
 
 fn chunk_spawn_offset(h: u64) -> DVec3 {
     // Axis indices 0/1/2: each splitmix64 call decorrelates adjacent seed values.
