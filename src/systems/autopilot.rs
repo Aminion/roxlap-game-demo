@@ -2,9 +2,7 @@ use glam::{DQuat, DVec3, Vec2};
 use legion::{world::SubWorld, *};
 
 use crate::{
-    components::{
-        camera::CameraComponent, miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank,
-    },
+    components::{miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank},
     math::reject,
     AutopilotTarget, MouseDelta,
 };
@@ -79,7 +77,6 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
 
 #[system]
 #[read_component(Miner)]
-#[read_component(CameraComponent)]
 #[read_component(NewtonBody)]
 #[write_component(ThrusterBank)]
 pub fn autopilot(
@@ -88,13 +85,11 @@ pub fn autopilot(
     #[resource] mouse_delta: &MouseDelta,
 ) {
     if *mouse_delta != Vec2::ZERO {
-        let (_, cam) = {
-            let mut q = <(&Miner, &CameraComponent)>::query();
-            q.iter(world).next().expect("miner missing")
+        let (cam_right, cam_up) = {
+            let mut q = <(&Miner, &NewtonBody)>::query();
+            let (_, body) = q.iter(world).next().expect("miner missing");
+            (body.orientation * DVec3::X, body.orientation * DVec3::Y)
         };
-        let c = &cam.0;
-        let cam_right = DVec3::from(c.right.map(f64::from));
-        let cam_up = -DVec3::from(c.down.map(f64::from));
         let delta = mouse_delta.as_dvec2() * (-MOUSE_SENSITIVITY);
         let yaw_rot = DQuat::from_axis_angle(cam_up, delta.x);
         let pitch_rot = DQuat::from_axis_angle(cam_right, delta.y);

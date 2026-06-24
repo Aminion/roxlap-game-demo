@@ -166,7 +166,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
         handle,
         (INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
         GpuRendererSettings {
-            uncapped_present: true,
+            uncapped_present: false,
             ..GpuRendererSettings::default()
         },
     )

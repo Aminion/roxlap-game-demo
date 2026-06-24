@@ -30,7 +30,7 @@ const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0
 
 /// Number of chunks pulled from the queue and processed per frame.
 /// The compute phase runs in parallel, so wall time ≈ single-chunk cost / thread count.
-const CHUNK_BATCH_SIZE: usize = 32;
+const CHUNK_BATCH_SIZE: usize = 64;
 
 #[system]
 #[read_component(Miner)]
