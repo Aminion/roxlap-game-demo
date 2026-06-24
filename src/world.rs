@@ -161,51 +161,87 @@ fn asteroid_surface_depth(
     radius + noise as f64 * ASTEROID_NOISE_AMP - d
 }
 
-pub fn build_asteroid_sprite_model(
-    seed: u64,
+/// Build the asteroid sprite model and (when `collect_minerals` is true) select
+/// 3–5 embedded mineral positions in a single Perlin pass.
+///
+/// `color_seed` drives voxel colour RNG; `mineral_seed` drives the mineral
+/// count and shuffle. Both must match what `compute_chunk` passes so that
+/// colours and mineral positions remain deterministic per chunk hash.
+pub fn build_asteroid(
+    color_seed: u64,
+    mineral_seed: u64,
     noise_seed: u64,
     scale_seed: u64,
-    mineral_count: usize,
-) -> SpriteModel {
+    collect_minerals: bool,
+) -> (SpriteModel, Vec<UVec3>) {
     let vsid = ASTEROID_VOXEL_SIZE;
     let center = vsid as f64 / 2.0;
     let radius = center - 0.5;
-
     let occ_words_per_col = vsid.div_ceil(32).max(1);
     let cols = (vsid * vsid) as usize;
 
-    let mut occupancy = vec![0u32; cols * occ_words_per_col as usize];
-    let mut color_offsets = vec![0u32; cols + 1];
-    let mut colors: Vec<u32> = Vec::new();
-    let mut dirs: Vec<u32> = Vec::new();
-
-    let red_prob = mineral_count as f32 / RED_VOXELS_PER_MINERAL;
-    let mut rng = StdRng::seed_from_u64(seed);
     let perlin = PerlinNoise3D::new(noise_seed);
     let scale = asteroid_scale(scale_seed);
+
+    // Pass 1: single Perlin scan — occupancy, per-column z lists, mineral candidates.
+    let mut occupancy = vec![0u32; cols * occ_words_per_col as usize];
+    let mut col_solid_z: Vec<Vec<u32>> = Vec::with_capacity(cols);
+    let mut mineral_candidates: Vec<UVec3> = Vec::new();
 
     for y in 0..vsid {
         for x in 0..vsid {
             let col = (x + y * vsid) as usize;
-            color_offsets[col] = colors.len() as u32;
+            let mut zs: Vec<u32> = Vec::new();
             for z in 0..vsid {
-                if asteroid_surface_depth(x, y, z, center, radius, scale, &perlin) >= 0.0 {
+                let depth = asteroid_surface_depth(x, y, z, center, radius, scale, &perlin);
+                if depth >= 0.0 {
                     occupancy[col * occ_words_per_col as usize + z as usize / 32] |=
                         1u32 << (z % 32);
-                    let color = if red_prob > 0.0 && rng.random::<f32>() < red_prob {
-                        0x80_C0_30_30
-                    } else {
-                        random_voxel_colour(&mut rng)
-                    };
-                    colors.push(color);
-                    dirs.push(0);
+                    zs.push(z);
+                    if collect_minerals && depth > MINERAL_SURFACE_BUFFER {
+                        mineral_candidates.push(UVec3::new(x, y, z));
+                    }
                 }
             }
+            col_solid_z.push(zs);
+        }
+    }
+
+    // Pick minerals now that candidates are known.
+    let mut mineral_rng = StdRng::seed_from_u64(mineral_seed);
+    if collect_minerals && !mineral_candidates.is_empty() {
+        let count = (mineral_rng.random_range(3u32..=5) as usize).min(mineral_candidates.len());
+        for i in 0..count {
+            let j = mineral_rng.random_range(i..mineral_candidates.len());
+            mineral_candidates.swap(i, j);
+        }
+        mineral_candidates.truncate(count);
+    } else {
+        mineral_candidates.clear();
+    }
+
+    // Pass 2: colour assignment — cheap, no Perlin; needs mineral_count for red_prob.
+    let red_prob = mineral_candidates.len() as f32 / RED_VOXELS_PER_MINERAL;
+    let mut rng = StdRng::seed_from_u64(color_seed);
+    let mut color_offsets = vec![0u32; cols + 1];
+    let mut colors: Vec<u32> = Vec::new();
+    let mut dirs: Vec<u32> = Vec::new();
+
+    for (col, zs) in col_solid_z.iter().enumerate() {
+        color_offsets[col] = colors.len() as u32;
+        for _ in zs {
+            let color = if red_prob > 0.0 && rng.random::<f32>() < red_prob {
+                0x80_C0_30_30
+            } else {
+                random_voxel_colour(&mut rng)
+            };
+            colors.push(color);
+            dirs.push(0);
         }
     }
     color_offsets[cols] = colors.len() as u32;
 
-    SpriteModel {
+    let model = SpriteModel {
         dims: [vsid, vsid, vsid],
         occ_words_per_col,
         pivot: [center as f32; 3],
@@ -214,44 +250,9 @@ pub fn build_asteroid_sprite_model(
         dirs,
         color_offsets,
         voxel_world_size: 1.0,
-    }
-}
+    };
 
-/// Return 3–5 model-local voxel positions buried inside the asteroid.
-/// Uses the same Perlin surface displacement as `build_asteroid_sprite_model`
-/// and requires a `MINERAL_SURFACE_BUFFER` voxel margin inside the actual surface.
-pub fn generate_mineral_points(
-    vsid: u32,
-    seed: u64,
-    noise_seed: u64,
-    scale_seed: u64,
-) -> Vec<UVec3> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    let center = vsid as f64 / 2.0;
-    let radius = center - 0.5;
-    let perlin = PerlinNoise3D::new(noise_seed);
-    let scale = asteroid_scale(scale_seed);
-
-    let mut candidates: Vec<UVec3> = Vec::new();
-    for y in 0..vsid {
-        for x in 0..vsid {
-            for z in 0..vsid {
-                if asteroid_surface_depth(x, y, z, center, radius, scale, &perlin)
-                    > MINERAL_SURFACE_BUFFER
-                {
-                    candidates.push(UVec3::new(x, y, z));
-                }
-            }
-        }
-    }
-
-    let count = (rng.random_range(3u32..=5) as usize).min(candidates.len());
-    for i in 0..count {
-        let j = rng.random_range(i..candidates.len());
-        candidates.swap(i, j);
-    }
-    candidates.truncate(count);
-    candidates
+    (model, mineral_candidates)
 }
 
 /// 7-voxel cross crystal: one centre voxel plus one on each of the six faces.

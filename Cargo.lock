@@ -1372,6 +1372,7 @@ dependencies = [
  "proptest",
  "rand 0.10.1",
  "raw-window-handle",
+ "rayon",
  "roxlap-cavegen",
  "roxlap-core",
  "roxlap-formats",
