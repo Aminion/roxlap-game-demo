@@ -150,9 +150,9 @@ fn compute_chunk(chunk: IVec3, world_seed: u64) -> ChunkComputeResult {
         return ChunkComputeResult::NoSpawn { chunk };
     }
 
-    let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
-    let spawn_pos = chunk_centre + chunk_spawn_offset(world_seed, chunk);
     let h = chunk_hash_base(world_seed, chunk);
+    let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
+    let spawn_pos = chunk_centre + chunk_spawn_offset(h);
     let has_crystals = splitmix64(h.wrapping_add(8)) >> 63 == 0;
     let noise_seed = h.wrapping_add(9);
     let scale_seed = h.wrapping_add(10);
@@ -163,7 +163,7 @@ fn compute_chunk(chunk: IVec3, world_seed: u64) -> ChunkComputeResult {
         scale_seed,
         has_crystals,
     );
-    let angular_vel = chunk_spawn_angular_vel(world_seed, chunk);
+    let angular_vel = chunk_spawn_angular_vel(h);
 
     ChunkComputeResult::Spawn {
         chunk,
@@ -197,8 +197,7 @@ fn drain_chunk_queue(
 
     // Drain stale front entries (ship moved away before they were generated).
     while let Some(&front) = chunk_queue.0.front() {
-        let d = front - center;
-        if d.dot(d) > r2 {
+        if (front - center).length_squared() > r2 {
             chunk_queue.0.pop_front();
             queued_chunks.0.remove(&front);
         } else {
@@ -293,15 +292,13 @@ fn hash_to_signed(v: u64) -> f64 {
     (v >> 40) as f64 / 8_388_608.0 - 1.0
 }
 
-fn chunk_spawn_offset(world_seed: u64, chunk: IVec3) -> DVec3 {
-    let h = chunk_hash_base(world_seed, chunk);
+fn chunk_spawn_offset(h: u64) -> DVec3 {
     // Axis indices 0/1/2: each splitmix64 call decorrelates adjacent seed values.
     DVec3::from([0u64, 1, 2].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
         * SPAWN_SAFE_RANGE
 }
 
-fn chunk_spawn_angular_vel(world_seed: u64, chunk: IVec3) -> DVec3 {
-    let h = chunk_hash_base(world_seed, chunk);
+fn chunk_spawn_angular_vel(h: u64) -> DVec3 {
     // Indices 3/4/5 are independent from the position offset indices 0/1/2.
     DVec3::from([3u64, 4, 5].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
 }
@@ -411,8 +408,7 @@ fn update_sprites(
             continue;
         };
         let chunk = world_to_chunk(body.pos);
-        let d = chunk - center;
-        if d.dot(d) > r2 {
+        if (chunk - center).length_squared() > r2 {
             to_unload.push((entity, chunk));
         }
     }
@@ -429,8 +425,8 @@ fn update_sprites(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_swap_remove, chunk_spawn_angular_vel, chunk_spawn_hash, chunk_spawn_offset,
-        SpriteMaps, SPAWN_SAFE_RANGE,
+        apply_swap_remove, chunk_hash_base, chunk_spawn_angular_vel, chunk_spawn_hash,
+        chunk_spawn_offset, SpriteMaps, SPAWN_SAFE_RANGE,
     };
     use crate::generation::chunks::CHUNK_SIZE;
     use glam::{DVec3, IVec3};
@@ -494,7 +490,7 @@ mod tests {
                 IVec3::new(1, -1, 1000),
                 IVec3::new(-100, 200, -300),
             ] {
-                let v = chunk_spawn_angular_vel(seed, chunk);
+                let v = chunk_spawn_angular_vel(chunk_hash_base(seed, chunk));
                 assert!(
                     v.x.abs() <= 1.0 && v.y.abs() <= 1.0 && v.z.abs() <= 1.0,
                     "angular_vel {v} out of [-1,1] for chunk {chunk} seed {seed}"
@@ -513,7 +509,7 @@ mod tests {
                 IVec3::new(1, -1, 1000),
                 IVec3::new(-100, 200, -300),
             ] {
-                let o = chunk_spawn_offset(seed, chunk);
+                let o = chunk_spawn_offset(chunk_hash_base(seed, chunk));
                 assert!(
                     o.x.abs() <= SPAWN_SAFE_RANGE
                         && o.y.abs() <= SPAWN_SAFE_RANGE
