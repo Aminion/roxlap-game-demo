@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use glam::{DQuat, DVec3, IVec3, UVec3};
+use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, EntityStore, *};
 use rayon::prelude::*;
-use roxlap_cavegen::PerlinNoise3D;
-use roxlap_gpu::{GpuRenderer, SpriteModel};
+use roxlap_gpu::GpuRenderer;
 
 use crate::{
     components::{
@@ -15,32 +14,23 @@ use crate::{
         presence_position::PresencePosition,
         sprite_id::Sprite,
     },
-    generation::chunks::{missing_chunks, world_to_chunk, CHUNK_SIZE, LOAD_RADIUS},
-    math::{hash_to_signed, splitmix64},
-    world::{build_asteroid, spawn_sprite, ASTEROID_VOXEL_SIZE},
+    generation::{
+        asteroid::ASTEROID_VOXEL_SIZE,
+        chunks::{
+            compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, CHUNK_SIZE,
+            LOAD_RADIUS,
+        },
+    },
+    world::spawn_sprite,
     ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, SpriteData, VisitedChunks,
     WorldSeed,
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
 
-/// Base spatial frequency of the density noise. 1/0.03 ≈ 33 chunks per noise
-/// wavelength — large-scale void/dense structure roughly twice the load sphere.
-const CHUNK_NOISE_FREQ: f32 = 0.03;
-
-/// fBm octave count. Each octave doubles the frequency, adding finer patchiness:
-/// octave 1 ≈ 33-chunk blobs, octave 2 ≈ 16-chunk, octave 3 ≈ 8-chunk.
-const CHUNK_NOISE_OCTAVES: u32 = 3;
-
-/// Perlin outputs ≈ ±0.866 (theoretical max √3/2); divide by this to normalise to ±1.
-const PERLIN_MAX: f32 = 0.866;
-
 /// Number of chunks pulled from the queue and processed per frame.
 /// The compute phase runs in parallel, so wall time ≈ single-chunk cost / thread count.
 const CHUNK_BATCH_SIZE: usize = 32;
-
-/// Fraction of asteroids that contain crystal deposits. Range [0.0, 1.0].
-const CRYSTAL_SPAWN_CHANCE: f32 = 0.01;
 
 #[system]
 #[read_component(Miner)]
@@ -119,62 +109,6 @@ fn enqueue_chunks(
         // `visited` is only updated when the chunk is actually generated.
         chunk_queue.0.push_back(chunk);
         queued_chunks.0.insert(chunk);
-    }
-}
-
-enum ChunkComputeResult {
-    NoSpawn {
-        chunk: IVec3,
-    },
-    Spawn {
-        chunk: IVec3,
-        model: SpriteModel,
-        minerals: Vec<UVec3>,
-        spawn_pos: DVec3,
-        angular_vel: DVec3,
-    },
-}
-
-/// Pure-CPU chunk evaluation: density noise + optional asteroid model building.
-/// No GPU or ECS access — safe to call from rayon threads.
-fn compute_chunk(chunk: IVec3, world_seed: u64) -> ChunkComputeResult {
-    let perlin = PerlinNoise3D::new(world_seed);
-    let raw = perlin.fbm(
-        chunk.x as f32,
-        chunk.y as f32,
-        chunk.z as f32,
-        CHUNK_NOISE_OCTAVES,
-        CHUNK_NOISE_FREQ,
-    );
-    let density = ((raw / PERLIN_MAX) + 1.0) * 0.5;
-    let density = density.clamp(0.0, 1.0);
-    let density = density * density * (3.0 - 2.0 * density);
-
-    if chunk_spawn_hash(world_seed, chunk) >= density {
-        return ChunkComputeResult::NoSpawn { chunk };
-    }
-
-    let h = chunk_hash_base(world_seed, chunk);
-    let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
-    let spawn_pos = chunk_centre + chunk_spawn_offset(h);
-    let has_crystals = (splitmix64(h.wrapping_add(8)) >> 40) as f32 / 16_777_216.0 < CRYSTAL_SPAWN_CHANCE;
-    let noise_seed = h.wrapping_add(9);
-    let scale_seed = h.wrapping_add(10);
-    let (model, minerals) = build_asteroid(
-        h.wrapping_add(6),
-        h.wrapping_add(7),
-        noise_seed,
-        scale_seed,
-        has_crystals,
-    );
-    let angular_vel = chunk_spawn_angular_vel(h);
-
-    ChunkComputeResult::Spawn {
-        chunk,
-        model,
-        minerals,
-        spawn_pos,
-        angular_vel,
     }
 }
 
@@ -261,40 +195,6 @@ fn drain_chunk_queue(
             }
         }
     }
-}
-
-/// Combine world seed and chunk coordinates into one u64 base hash.
-/// Each axis is multiplied by a distinct irrational-derived constant
-/// (φ, π, e scaled to u64) so that chunks differing on only one axis
-/// produce unrelated sums before the splitmix64 avalanche pass.
-fn chunk_hash_base(world_seed: u64, chunk: IVec3) -> u64 {
-    splitmix64(
-        world_seed
-            .wrapping_add((chunk.x as u64).wrapping_mul(0x9e3779b97f4a7c15))
-            .wrapping_add((chunk.y as u64).wrapping_mul(0x6c62272e07bb0142))
-            .wrapping_add((chunk.z as u64).wrapping_mul(0x4d2c6dfc5ac42aad)),
-    )
-}
-
-fn chunk_spawn_hash(world_seed: u64, chunk: IVec3) -> f32 {
-    let h = chunk_hash_base(world_seed, chunk);
-    // Top 24 bits → [0, 1)
-    (h >> 40) as f32 / 16_777_216.0
-}
-
-/// Max axis offset from chunk centre: CHUNK_SIZE/2 − half_extent = 32 − 8 = 24.
-/// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
-const SPAWN_SAFE_RANGE: f64 = 24.0;
-
-fn chunk_spawn_offset(h: u64) -> DVec3 {
-    // Axis indices 0/1/2: each splitmix64 call decorrelates adjacent seed values.
-    DVec3::from([0u64, 1, 2].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
-        * SPAWN_SAFE_RANGE
-}
-
-fn chunk_spawn_angular_vel(h: u64) -> DVec3 {
-    // Indices 3/4/5 are independent from the position offset indices 0/1/2.
-    DVec3::from([3u64, 4, 5].map(|i| hash_to_signed(splitmix64(h.wrapping_add(i)))))
 }
 
 /// Bidirectional slot↔entity index kept in sync with GPU sprite storage.
@@ -418,12 +318,7 @@ fn update_sprites(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        apply_swap_remove, chunk_hash_base, chunk_spawn_angular_vel, chunk_spawn_hash,
-        chunk_spawn_offset, SpriteMaps, SPAWN_SAFE_RANGE,
-    };
-    use crate::generation::chunks::CHUNK_SIZE;
-    use glam::{DVec3, IVec3};
+    use super::{apply_swap_remove, SpriteMaps};
     use legion::Entity;
     use std::collections::HashMap;
 
@@ -431,107 +326,6 @@ mod tests {
         let mut world = legion::World::default();
         let entities: Vec<Entity> = (0..n).map(|_| world.push((0u8,))).collect();
         (world, entities)
-    }
-
-    // ── chunk_spawn_hash ──────────────────────────────────────────────────────
-
-    #[test]
-    fn chunk_hash_in_unit_range() {
-        for seed in [0u64, 1, u64::MAX, 0xdead_beef] {
-            for chunk in [
-                IVec3::ZERO,
-                IVec3::new(1, -1, 1000),
-                IVec3::new(-100, 200, -300),
-            ] {
-                let v = chunk_spawn_hash(seed, chunk);
-                assert!(
-                    (0.0..1.0).contains(&v),
-                    "hash out of [0,1): {v} for chunk {chunk} seed {seed}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn chunk_hash_differs_by_seed() {
-        let chunk = IVec3::new(5, 5, 5);
-        assert_ne!(
-            chunk_spawn_hash(0, chunk),
-            chunk_spawn_hash(1, chunk),
-            "different seeds must produce different hashes"
-        );
-    }
-
-    #[test]
-    fn chunk_hash_differs_by_coord() {
-        let seed = 42u64;
-        let hx = chunk_spawn_hash(seed, IVec3::new(1, 0, 0));
-        let hy = chunk_spawn_hash(seed, IVec3::new(0, 1, 0));
-        let hz = chunk_spawn_hash(seed, IVec3::new(0, 0, 1));
-        let hn = chunk_spawn_hash(seed, IVec3::new(-1, 0, 0));
-        assert_ne!(hx, hy);
-        assert_ne!(hy, hz);
-        assert_ne!(hx, hn, "positive and negative coords must hash differently");
-    }
-
-    // ── chunk_spawn_angular_vel ───────────────────────────────────────────────
-
-    #[test]
-    fn spawn_angular_vel_in_unit_range() {
-        for seed in [0u64, 1, 0xdead_beef, u64::MAX] {
-            for chunk in [
-                IVec3::ZERO,
-                IVec3::new(1, -1, 1000),
-                IVec3::new(-100, 200, -300),
-            ] {
-                let v = chunk_spawn_angular_vel(chunk_hash_base(seed, chunk));
-                assert!(
-                    v.x.abs() <= 1.0 && v.y.abs() <= 1.0 && v.z.abs() <= 1.0,
-                    "angular_vel {v} out of [-1,1] for chunk {chunk} seed {seed}"
-                );
-            }
-        }
-    }
-
-    // ── chunk_spawn_offset ────────────────────────────────────────────────────
-
-    #[test]
-    fn spawn_offset_within_safe_range() {
-        for seed in [0u64, 1, 0xdead_beef, u64::MAX] {
-            for chunk in [
-                IVec3::ZERO,
-                IVec3::new(1, -1, 1000),
-                IVec3::new(-100, 200, -300),
-            ] {
-                let o = chunk_spawn_offset(chunk_hash_base(seed, chunk));
-                assert!(
-                    o.x.abs() <= SPAWN_SAFE_RANGE
-                        && o.y.abs() <= SPAWN_SAFE_RANGE
-                        && o.z.abs() <= SPAWN_SAFE_RANGE,
-                    "offset {o} exceeds safe range for chunk {chunk} seed {seed}"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn adjacent_asteroids_do_not_overlap() {
-        // Worst case: both asteroids offset maximally toward the shared boundary.
-        // Asteroid A in chunk (0,0,0) offset +SAFE in X; B in chunk (1,0,0) offset -SAFE in X.
-        // Gap must be >= 2 * half_extent (16) for no AABB overlap.
-        let half_extent = 8.0_f64;
-        let chunk_a = IVec3::new(0, 0, 0);
-        let chunk_b = IVec3::new(1, 0, 0);
-        let centre_a = (chunk_a.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
-        let centre_b = (chunk_b.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
-        let worst_a = centre_a + DVec3::new(SPAWN_SAFE_RANGE, 0.0, 0.0);
-        let worst_b = centre_b - DVec3::new(SPAWN_SAFE_RANGE, 0.0, 0.0);
-        let gap = (worst_b.x - worst_a.x).abs();
-        assert!(
-            gap >= 2.0 * half_extent,
-            "gap {gap} < min separation {}",
-            2.0 * half_extent
-        );
     }
 
     // ── apply_swap_remove ─────────────────────────────────────────────────────

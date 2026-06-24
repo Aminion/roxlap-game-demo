@@ -11,7 +11,6 @@ use crate::{
 const RETRIEVAL_ACCEL: f64 = 30.0;
 const RETRIEVAL_ENERGY_DRAIN: f64 = 5.0;
 
-
 #[system]
 #[read_component(Miner)]
 #[read_component(CrystalMarker)]
