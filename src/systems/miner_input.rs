@@ -10,7 +10,6 @@ use crate::{
 
 /// Proportional retro-thrust/torque gain (s⁻¹). Terminal velocity ≈ max_lin_accel / DAMPING_GAIN.
 const DAMPING_GAIN: f64 = 1.5;
-const MIN_INPUT_LEN_SQ: f64 = 1e-15;
 
 fn axis(inputs: &HashSet<PlayerInput>, pos: PlayerInput, neg: PlayerInput) -> f64 {
     (inputs.contains(&pos) as i32 - inputs.contains(&neg) as i32) as f64
@@ -39,8 +38,8 @@ pub fn apply_miner_translation(inputs: &HashSet<PlayerInput>, bank: &mut Thruste
         ), // body -Z = nose/forward
     );
 
-    if local.length_squared() > MIN_INPUT_LEN_SQ {
-        bank.linear_command += local.normalize() * bank.max_lin_accel;
+    if let Some(n) = local.try_normalize() {
+        bank.linear_command += n * bank.max_lin_accel;
     }
 }
 
@@ -92,7 +91,6 @@ pub fn miner_input(world: &mut SubWorld, #[resource] inputs: &HashSet<PlayerInpu
 mod tests {
     use super::*;
     use crate::{
-        components::thruster::ThrusterBank,
         systems::thruster::apply_thrusters,
         test_utils::{make_bank, make_body},
     };

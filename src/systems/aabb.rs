@@ -16,11 +16,7 @@ pub fn aabb_update(world: &mut SubWorld, #[resource] sprite_data: &SpriteData) {
         let model = sprite_data.registry.model(sprite.chain_id);
         let vws = model.voxel_world_size as f64;
         let pivot = DVec3::from(model.pivot.map(|p| p as f64));
-        let dims = DVec3::new(
-            model.dims[0] as f64,
-            model.dims[1] as f64,
-            model.dims[2] as f64,
-        );
+        let dims = DVec3::from(model.dims.map(|d| d as f64));
         // Model box in body-local space: runs from -pivot*vws to (dims-pivot)*vws.
         let local_min = -pivot * vws;
         let local_max = (dims - pivot) * vws;
