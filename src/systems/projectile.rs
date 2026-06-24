@@ -53,8 +53,8 @@ pub fn projectile(
     }
     let mut projectiles: Vec<ProjState> = Vec::new();
     {
-        let mut q = <(Entity, &mut Projectile, &NewtonBody, &Sprite)>::query();
-        for (entity, proj, body, _sprite) in q.iter_mut(world) {
+        let mut q = <(Entity, &mut Projectile, &NewtonBody)>::query();
+        for (entity, proj, body) in q.iter_mut(world) {
             proj.lifetime -= dt.0;
             projectiles.push(ProjState {
                 entity: *entity,
@@ -75,6 +75,7 @@ pub fn projectile(
         orientation: DQuat,
         aabb_min: DVec3,
         aabb_max: DVec3,
+        radius: f64,
         mass: f64,
         chain_id: u32,
         initial_voxel_count: u32,
@@ -105,6 +106,7 @@ pub fn projectile(
             orientation: body.orientation,
             aabb_min: aabb.min,
             aabb_max: aabb.max,
+            radius: ((aabb.max - aabb.min) * 0.5).max_element(),
             mass: body.mass,
             chain_id: sprite.chain_id,
             initial_voxel_count,
@@ -120,8 +122,7 @@ pub fn projectile(
         ast_angular_vel: DVec3,
         ast_mass: f64,
         ast_orientation: DQuat,
-        ast_aabb_min: DVec3,
-        ast_aabb_max: DVec3,
+        ast_radius: f64,
         hit_voxel: UVec3,
         proj_vel: DVec3,
         proj_mass: f64,
@@ -159,8 +160,7 @@ pub fn projectile(
                         ast_angular_vel: a.angular_vel,
                         ast_mass: a.mass,
                         ast_orientation: a.orientation,
-                        ast_aabb_min: a.aabb_min,
-                        ast_aabb_max: a.aabb_max,
+                        ast_radius: a.radius,
                         hit_voxel,
                         proj_vel: p.vel,
                         proj_mass: p.mass,
@@ -194,30 +194,18 @@ pub fn projectile(
     }
     let mut pending_crystals: Vec<PendingCrystal> = Vec::new();
 
-    let carve_r = HIT_CARVE_RADIUS as i32;
-
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
     for hit in ast_hits {
         let hv = hit.hit_voxel;
-        let (pivot, dims) = {
-            let m = sprite_data.registry.model(hit.ast_chain_id);
-            (m.pivot, m.dims)
-        };
-
-        let hit_voxel_i = hv.as_ivec3();
+        let pivot = sprite_data.registry.model(hit.ast_chain_id).pivot;
+        let pivot_vec = DVec3::from(pivot.map(|p| p as f64));
 
         // Read minerals from the world only for asteroids that were actually hit.
         let (hit_minerals, all_minerals) = match world.entry_ref(hit.ast_entity) {
             Ok(entry) => match entry.get_component::<AsteroidMinerals>() {
                 Ok(m) => {
                     let all = m.points.clone();
-                    let hit_m = all
-                        .iter()
-                        .filter(|p| {
-                            (p.as_ivec3() - hit_voxel_i).length_squared() <= carve_r * carve_r
-                        })
-                        .copied()
-                        .collect();
+                    let hit_m = minerals_in_radius(&all, hv.as_ivec3(), HIT_CARVE_RADIUS);
                     (hit_m, all)
                 }
                 Err(_) => (vec![], vec![]),
@@ -225,28 +213,11 @@ pub fn projectile(
             Err(_) => (vec![], vec![]),
         };
 
-        // Carve a sphere of HIT_CARVE_RADIUS centred on the hit voxel.
-        let (empty, current_voxel_count) = {
-            let model = sprite_data.registry.model_mut(hit.ast_chain_id);
-            let r = HIT_CARVE_RADIUS as i32;
-            let hv_i = hv.as_ivec3();
-            let dims_i = IVec3::from(dims.map(|d| d as i32));
-            for dz in -r..=r {
-                for dy in -r..=r {
-                    for dx in -r..=r {
-                        let d = IVec3::new(dx, dy, dz);
-                        if d.dot(d) > r * r {
-                            continue;
-                        }
-                        let c = hv_i + d;
-                        if c.cmpge(IVec3::ZERO).all() && c.cmplt(dims_i).all() {
-                            model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
-                        }
-                    }
-                }
-            }
-            (model.colors.is_empty(), model.colors.len() as u32)
-        };
+        let (empty, current_voxel_count) = carve_sphere(
+            sprite_data.registry.model_mut(hit.ast_chain_id),
+            hv.as_ivec3(),
+            HIT_CARVE_RADIUS,
+        );
 
         // Trigger full destruction when fewer than 20 % of the original voxels remain.
         let force_destroy = !empty && current_voxel_count * 5 < hit.initial_voxel_count;
@@ -261,7 +232,6 @@ pub fn projectile(
         };
 
         let mut rng = rand::rng();
-        let pivot_vec = DVec3::from(pivot.map(|p| p as f64));
         for &p in crystals_to_spawn {
             let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
@@ -286,20 +256,15 @@ pub fn projectile(
             perform_despawn(hit.ast_entity, &mut maps, world, commands, gpu);
             loaded.0.remove(&hit.ast_entity);
         } else {
-            // Apply linear and angular impulse from the projectile hit.
-            //
-            // effective_impulse = proj_mass × proj_vel × HIT_IMPULSE_FACTOR
-            // delta_vel         = effective_impulse / ast_mass
-            // lever             = world-space vector from asteroid centre to hit voxel
-            // delta_omega       = lever × effective_impulse / moment_of_inertia
-            //   (moment of inertia for a solid sphere ≈ 2/5 × mass × radius²)
-            let hit_local = hv.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
-            let lever = hit.ast_orientation * hit_local; // world space
-            let effective_impulse = hit.proj_vel * hit.proj_mass * HIT_IMPULSE_FACTOR;
-            let delta_vel = effective_impulse / hit.ast_mass;
-            let radius = ((hit.ast_aabb_max - hit.ast_aabb_min) * 0.5).max_element();
-            let moment = SOLID_SPHERE_INERTIA * hit.ast_mass * radius * radius;
-            let delta_omega = lever.cross(effective_impulse) / moment;
+            let (delta_vel, delta_omega) = hit_impulse(
+                hit.proj_vel,
+                hit.proj_mass,
+                hit.ast_mass,
+                hit.ast_radius,
+                hit.ast_orientation,
+                hv,
+                pivot_vec,
+            );
 
             if let Ok(mut entry) = world.entry_mut(hit.ast_entity) {
                 if let Ok(body) = entry.get_component_mut::<NewtonBody>() {
@@ -333,6 +298,59 @@ pub fn projectile(
     }
 }
 
+/// Carve a sphere of `radius` voxels centred on `center` in-place. Returns `(is_empty, count)`.
+fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32) {
+    let r = radius as i32;
+    let dims_i = IVec3::from(model.dims.map(|d| d as i32));
+    for dz in -r..=r {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let d = IVec3::new(dx, dy, dz);
+                if d.dot(d) > r * r {
+                    continue;
+                }
+                let c = center + d;
+                if c.cmpge(IVec3::ZERO).all() && c.cmplt(dims_i).all() {
+                    model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
+                }
+            }
+        }
+    }
+    let count = model.colors.len() as u32;
+    (count == 0, count)
+}
+
+/// Return the subset of `minerals` whose voxel index lies within `radius` of `center`.
+fn minerals_in_radius(minerals: &[UVec3], center: IVec3, radius: u32) -> Vec<UVec3> {
+    let r2 = (radius as i32).pow(2);
+    minerals
+        .iter()
+        .copied()
+        .filter(|&p| (p.as_ivec3() - center).length_squared() <= r2)
+        .collect()
+}
+
+/// Compute `(delta_vel, delta_omega)` for an asteroid struck by a projectile.
+///
+/// Uses a solid-sphere moment-of-inertia estimate (I = 2/5·m·r²).
+fn hit_impulse(
+    proj_vel: DVec3,
+    proj_mass: f64,
+    ast_mass: f64,
+    ast_radius: f64,
+    ast_orientation: DQuat,
+    hit_voxel: UVec3,
+    pivot: DVec3,
+) -> (DVec3, DVec3) {
+    let hit_local = hit_voxel.as_dvec3() + DVec3::splat(0.5) - pivot;
+    let lever = ast_orientation * hit_local;
+    let impulse = proj_vel * proj_mass * HIT_IMPULSE_FACTOR;
+    let delta_vel = impulse / ast_mass;
+    let moment = SOLID_SPHERE_INERTIA * ast_mass * ast_radius * ast_radius;
+    let delta_omega = lever.cross(impulse) / moment;
+    (delta_vel, delta_omega)
+}
+
 /// Returns the model-local voxel coordinates `(x, y, z)` of the hit, or `None`.
 ///
 /// Point test only — a fast-moving projectile may tunnel through thin geometry
@@ -360,8 +378,8 @@ fn voxel_hit(
 
 #[cfg(test)]
 mod tests {
-    use super::voxel_hit;
-    use glam::{DQuat, DVec3, UVec3};
+    use super::{carve_sphere, hit_impulse, minerals_in_radius, voxel_hit};
+    use glam::{DQuat, DVec3, IVec3, UVec3};
     use roxlap_gpu::SpriteModel;
     use std::f64::consts::FRAC_PI_2;
 
@@ -447,5 +465,114 @@ mod tests {
             ),
             None
         );
+    }
+
+    // ── minerals_in_radius ────────────────────────────────────────────────────
+
+    #[test]
+    fn minerals_center_included() {
+        let center = IVec3::new(2, 2, 2);
+        let pts = vec![UVec3::new(2, 2, 2), UVec3::new(10, 10, 10)];
+        assert_eq!(minerals_in_radius(&pts, center, 1), vec![UVec3::new(2, 2, 2)]);
+    }
+
+    #[test]
+    fn minerals_at_exact_radius_included() {
+        // Manhattan distance 2 along one axis, radius 2 → distance² = 4 = r².
+        let center = IVec3::new(0, 0, 0);
+        let pts = vec![UVec3::new(2, 0, 0)];
+        assert_eq!(minerals_in_radius(&pts, center, 2), pts);
+    }
+
+    #[test]
+    fn minerals_outside_radius_excluded() {
+        let center = IVec3::new(0, 0, 0);
+        let pts = vec![UVec3::new(3, 0, 0)];
+        assert!(minerals_in_radius(&pts, center, 2).is_empty());
+    }
+
+    // ── carve_sphere ──────────────────────────────────────────────────────────
+
+    /// Build a solid 5×5×5 model (all voxels occupied).
+    fn make_5x5x5() -> SpriteModel {
+        let dims = [5u32; 3];
+        let n_cols = (dims[0] * dims[1]) as usize; // 25
+        let voxels_per_col = dims[2] as usize; // 5
+        let mut occupancy = vec![0u32; n_cols];
+        for w in &mut occupancy {
+            *w = (1u32 << voxels_per_col) - 1; // bits 0–4 set
+        }
+        let total = n_cols * voxels_per_col; // 125
+        // Each of the 25 columns holds exactly 5 colors in order.
+        let color_offsets: Vec<u32> =
+            (0..=n_cols).map(|i| (i * voxels_per_col) as u32).collect();
+        SpriteModel {
+            dims,
+            occ_words_per_col: 1,
+            pivot: [2.5, 2.5, 2.5],
+            occupancy,
+            colors: vec![0xFF_FF_FF_FF; total],
+            dirs: vec![0; total],
+            color_offsets,
+            voxel_world_size: 1.0,
+        }
+    }
+
+    #[test]
+    fn carve_removes_voxels_in_sphere() {
+        let mut model = make_5x5x5();
+        let before = model.colors.len();
+        // Carve radius 1 at centre (2,2,2) — removes the 7-voxel cross (1+6).
+        carve_sphere(&mut model, IVec3::new(2, 2, 2), 1);
+        assert!(model.colors.len() < before, "some voxels should be removed");
+    }
+
+    #[test]
+    fn carve_out_of_bounds_does_not_panic() {
+        let mut model = make_5x5x5();
+        // Centre at corner; half the sphere is outside the model bounds.
+        carve_sphere(&mut model, IVec3::new(0, 0, 0), 4);
+    }
+
+    // ── hit_impulse ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn hit_impulse_delta_vel_direction() {
+        // Projectile moving along +X hits the asteroid centre: lever is zero,
+        // so delta_omega should be near zero and delta_vel should be along +X.
+        let (dv, domega) = hit_impulse(
+            DVec3::X,
+            1.0,
+            1.0,
+            5.0,
+            DQuat::IDENTITY,
+            UVec3::new(0, 0, 0),
+            DVec3::ZERO, // pivot at origin → hit_local = (0.5, 0.5, 0.5)
+        );
+        assert!(dv.x > 0.0, "delta_vel should point along +X");
+        assert!(dv.y.abs() < 1e-10 && dv.z.abs() < 1e-10);
+        // Lever is (0.5, 0.5, 0.5), impulse is along X: cross product is non-zero
+        // but we just check it's finite.
+        assert!(domega.is_finite());
+    }
+
+    #[test]
+    fn hit_impulse_scales_with_mass_and_speed() {
+        // Doubling proj_mass should double delta_vel magnitude.
+        let args = |mass: f64| {
+            hit_impulse(
+                DVec3::X,
+                mass,
+                10.0,
+                5.0,
+                DQuat::IDENTITY,
+                UVec3::new(5, 5, 5),
+                DVec3::splat(5.0),
+            )
+        };
+        let (dv1, _) = args(1.0);
+        let (dv2, _) = args(2.0);
+        let ratio = dv2.length() / dv1.length();
+        assert!((ratio - 2.0).abs() < 1e-10, "ratio was {ratio}");
     }
 }
