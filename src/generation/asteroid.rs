@@ -81,27 +81,28 @@ pub fn build_asteroid(
     let perlin = PerlinNoise3D::new(noise_seed);
     let scale = asteroid_scale(scale_seed);
 
-    // Pass 1: single Perlin scan — occupancy, per-column z lists, mineral candidates.
+    // Pass 1: single Perlin scan — occupancy, per-column voxel counts, mineral candidates.
     let mut occupancy = vec![0u32; cols * occ_words_per_col as usize];
-    let mut col_solid_z: Vec<Vec<u32>> = Vec::with_capacity(cols);
-    let mut mineral_candidates: Vec<UVec3> = Vec::new();
+    let mut col_voxel_counts: Vec<u32> = Vec::with_capacity(cols);
+    let mut mineral_candidates: Vec<UVec3> =
+        Vec::with_capacity(if collect_minerals { 64 } else { 0 });
 
     for y in 0..vsid {
         for x in 0..vsid {
             let col = (x + y * vsid) as usize;
-            let mut zs: Vec<u32> = Vec::new();
+            let mut count: u32 = 0;
             for z in 0..vsid {
                 let depth = asteroid_surface_depth(x, y, z, center, radius, scale, &perlin);
                 if depth >= 0.0 {
                     occupancy[col * occ_words_per_col as usize + z as usize / 32] |=
                         1u32 << (z % 32);
-                    zs.push(z);
+                    count += 1;
                     if collect_minerals && depth > MINERAL_SURFACE_BUFFER {
                         mineral_candidates.push(UVec3::new(x, y, z));
                     }
                 }
             }
-            col_solid_z.push(zs);
+            col_voxel_counts.push(count);
         }
     }
 
@@ -118,23 +119,23 @@ pub fn build_asteroid(
         mineral_candidates.clear();
     }
 
-    // Pass 2: colour assignment — cheap, no Perlin; needs mineral_count for red_prob.
+    // Pass 2: colour assignment — cheap, no Perlin; pre-allocated from exact voxel count.
+    let total_voxels: usize = col_voxel_counts.iter().map(|&c| c as usize).sum();
     let red_prob = mineral_candidates.len() as f32 / RED_VOXELS_PER_MINERAL;
     let mut rng = StdRng::seed_from_u64(color_seed);
     let mut color_offsets = vec![0u32; cols + 1];
-    let mut colors: Vec<u32> = Vec::new();
-    let mut dirs: Vec<u32> = Vec::new();
+    let mut colors: Vec<u32> = Vec::with_capacity(total_voxels);
+    let dirs: Vec<u32> = vec![0u32; total_voxels];
 
-    for (col, zs) in col_solid_z.iter().enumerate() {
+    for (col, &count) in col_voxel_counts.iter().enumerate() {
         color_offsets[col] = colors.len() as u32;
-        for _ in zs {
+        for _ in 0..count {
             let color = if red_prob > 0.0 && rng.random::<f32>() < red_prob {
                 0x80_C0_30_30
             } else {
                 random_voxel_colour(&mut rng)
             };
             colors.push(color);
-            dirs.push(0);
         }
     }
     color_offsets[cols] = colors.len() as u32;
