@@ -74,14 +74,12 @@ pub fn presence_position_update(
         commands,
         world_seed.0,
     );
-    let queue_now_empty = chunk_queue.0.is_empty();
-
     // Compact when dead models accumulate past this threshold. Cost is O(live volume)
     // not O(dead count), so firing every unload cycle (94–165 dead, ~300KB recovered)
     // is wasteful — defer until the waste is worth a 35–66ms rebuild.
     const COMPACT_DEAD_THRESHOLD: u32 = 300;
 
-    let should_compact = queue_now_empty && pending_compact.0 >= COMPACT_DEAD_THRESHOLD;
+    let should_compact = pending_compact.0 >= COMPACT_DEAD_THRESHOLD;
 
     if should_compact {
         gpu.compact_sprite_models(&sprite_data.registry);
