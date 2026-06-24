@@ -12,7 +12,7 @@ use crate::{
         projectile::Projectile,
         sprite_id::Sprite,
     },
-    systems::presence_position::{build_sprite_maps, perform_despawn},
+    systems::sprite::{build_sprite_maps, perform_despawn},
     world::{build_crystal_sprite_model, spawn_sprite},
     Dt, LoadedAsteroids, SpriteData,
 };
@@ -473,7 +473,10 @@ mod tests {
     fn minerals_center_included() {
         let center = IVec3::new(2, 2, 2);
         let pts = vec![UVec3::new(2, 2, 2), UVec3::new(10, 10, 10)];
-        assert_eq!(minerals_in_radius(&pts, center, 1), vec![UVec3::new(2, 2, 2)]);
+        assert_eq!(
+            minerals_in_radius(&pts, center, 1),
+            vec![UVec3::new(2, 2, 2)]
+        );
     }
 
     #[test]
@@ -503,9 +506,8 @@ mod tests {
             *w = (1u32 << voxels_per_col) - 1; // bits 0–4 set
         }
         let total = n_cols * voxels_per_col; // 125
-        // Each of the 25 columns holds exactly 5 colors in order.
-        let color_offsets: Vec<u32> =
-            (0..=n_cols).map(|i| (i * voxels_per_col) as u32).collect();
+                                             // Each of the 25 columns holds exactly 5 colors in order.
+        let color_offsets: Vec<u32> = (0..=n_cols).map(|i| (i * voxels_per_col) as u32).collect();
         SpriteModel {
             dims,
             occ_words_per_col: 1,

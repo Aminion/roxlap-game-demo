@@ -8,7 +8,7 @@ use crate::{
     generation::chunks::{world_to_chunk, LOAD_RADIUS},
     systems::{
         energy::{Energy, ENERGY_MAX},
-        presence_position::{build_sprite_maps, perform_despawn},
+        sprite::{build_sprite_maps, perform_despawn},
     },
     Dt,
 };

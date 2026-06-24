@@ -11,4 +11,5 @@ pub mod projectile;
 pub mod render;
 pub mod retrieval;
 pub mod shooting;
+pub mod sprite;
 pub mod thruster;
