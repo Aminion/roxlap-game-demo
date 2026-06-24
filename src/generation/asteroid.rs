@@ -1,5 +1,5 @@
 use glam::{DVec3, UVec3};
-use rand::{rngs::StdRng, RngExt, SeedableRng};
+use rand::{rngs::StdRng, seq::SliceRandom, RngExt, SeedableRng};
 use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::SpriteModel;
 
@@ -110,10 +110,7 @@ pub fn build_asteroid(
     let mut mineral_rng = StdRng::seed_from_u64(mineral_seed);
     if collect_minerals && !mineral_candidates.is_empty() {
         let count = (mineral_rng.random_range(3u32..=5) as usize).min(mineral_candidates.len());
-        for i in 0..count {
-            let j = mineral_rng.random_range(i..mineral_candidates.len());
-            mineral_candidates.swap(i, j);
-        }
+        mineral_candidates.partial_shuffle(&mut mineral_rng, count);
         mineral_candidates.truncate(count);
     } else {
         mineral_candidates.clear();

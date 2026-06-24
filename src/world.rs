@@ -1,9 +1,9 @@
 use std::f32::consts::{PI, TAU};
 
 use bytemuck::Zeroable;
-use glam::{DMat3, DQuat, DVec3, UVec3};
+use glam::{DMat3, DQuat, DVec3, IVec2, UVec3, Vec2};
 use legion::World;
-use rand::{rngs::StdRng, RngExt, SeedableRng};
+use rand::{distr::weighted::WeightedIndex, distr::Distribution, rngs::StdRng, RngExt, SeedableRng};
 use roxlap_gpu::{
     camera::Camera as GpuCamera, GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel,
     SpriteModelRegistry,
@@ -28,6 +28,8 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
 
     let mut pixels = vec![0u8; (W * H * 4) as usize];
     let mut rng = StdRng::seed_from_u64(seed);
+    let color_dist = WeightedIndex::new([2, 2, 6]).unwrap(); // 20% red, 20% blue, 60% white
+    let size_dist = WeightedIndex::new([6, 3, 1]).unwrap();  // 60% sz2, 30% sz3, 10% sz4
 
     for _ in 0..STAR_COUNT {
         // Uniform solid-angle distribution: cos(polar) uniform in [-1, 1].
@@ -37,44 +39,45 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
         // Match the UV convention in scene_dda.wgsl:
         //   u = elevation = acos(-dir.z) / π  → texture column (x)
         //   v = azimuth  = atan2(x,y)/(2π)+.5 → texture row    (y)
-        let elevation_uv = (-cos_theta).acos() / PI;
-        let azimuth_uv = phi / TAU;
-
-        let cx = (elevation_uv * W as f32).min(W as f32 - 1.0) as i32;
-        let cy = (azimuth_uv * H as f32) as i32 % H as i32;
+        let uv = Vec2::new((-cos_theta).acos() / PI, phi / TAU);
+        let center = IVec2::new(
+            (uv.x * W as f32).min(W as f32 - 1.0) as i32,
+            (uv.y * H as f32) as i32 % H as i32,
+        );
 
         let brightness: u8 = rng.random_range(160u8..=220);
         let b = brightness as f32;
 
         // Color: 20% red-biased, 20% blue-biased, 60% white.
-        let (r, g, bl) = match rng.random_range(0u8..10) {
-            0..=1 => ((b * 1.0) as u8, (b * 0.80) as u8, (b * 0.75) as u8),
-            2..=3 => ((b * 0.75) as u8, (b * 0.85) as u8, (b * 1.0) as u8),
+        let (r, g, bl) = match color_dist.sample(&mut rng) {
+            0 => ((b * 1.0) as u8, (b * 0.80) as u8, (b * 0.75) as u8),
+            1 => ((b * 0.75) as u8, (b * 0.85) as u8, (b * 1.0) as u8),
             _ => (brightness, brightness, brightness),
         };
 
         // Size: 2, 3, or 4 pixels — larger than before to survive bilinear blur.
-        let size: i32 = match rng.random_range(0u8..10) {
-            0..=5 => 2,
-            6..=8 => 3,
+        let size: i32 = match size_dist.sample(&mut rng) {
+            0 => 2,
+            1 => 3,
             _ => 4,
         };
 
         // In equirectangular, azimuth pixels compress by sin(elevation) near the poles.
         // Stretch the star in the azimuth (row) direction by 1/sin(elevation) so it
         // appears round on screen regardless of where on the sphere it sits.
-        let sin_elev = (elevation_uv * PI).sin();
+        let sin_elev = (uv.x * PI).sin();
         let width_v = ((size as f32 / sin_elev).round() as i32).max(size);
-        let half_u = size / 2;
-        let half_v = width_v / 2;
+        let half = IVec2::new(size / 2, width_v / 2);
 
         for dx in 0..size {
             // elevation (column) direction
             for dy in 0..width_v {
                 // azimuth (row) direction — stretched
-                let spx = (cx + dx - half_u).clamp(0, W as i32 - 1) as u32;
-                let spy = ((cy + dy - half_v).rem_euclid(H as i32)) as u32;
-                let i = ((spy * W + spx) * 4) as usize;
+                let pixel = IVec2::new(
+                    (center.x + dx - half.x).clamp(0, W as i32 - 1),
+                    (center.y + dy - half.y).rem_euclid(H as i32),
+                );
+                let i = ((pixel.y as u32 * W + pixel.x as u32) * 4) as usize;
                 pixels[i] = r;
                 pixels[i + 1] = g;
                 pixels[i + 2] = bl;

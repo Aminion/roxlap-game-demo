@@ -236,9 +236,9 @@ pub fn projectile(
             let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
             let spin = DVec3::new(
-                (rng.random::<f64>() - 0.5) * 4.0,
-                (rng.random::<f64>() - 0.5) * 4.0,
-                (rng.random::<f64>() - 0.5) * 4.0,
+                rng.random_range(-2.0f64..2.0),
+                rng.random_range(-2.0f64..2.0),
+                rng.random_range(-2.0f64..2.0),
             );
             let eject_dir = (crystal_world - hit.ast_pos).normalize_or_zero();
             let eject_speed = rng.random_range(0.5f64..2.0);
