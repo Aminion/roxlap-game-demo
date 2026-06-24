@@ -78,7 +78,7 @@ pub fn projectile(
         chain_id: u32,
         initial_voxel_count: u32,
     }
-    let mut asteroids: Vec<AstState> = Vec::new();
+    let mut asteroids: Vec<AstState> = Vec::with_capacity(loaded.0.len());
     for &entity in &loaded.0 {
         let Ok(entry) = world.entry_ref(entity) else {
             continue;
@@ -124,7 +124,7 @@ pub fn projectile(
         proj_mass: f64,
         initial_voxel_count: u32,
     }
-    let mut proj_to_remove: Vec<Entity> = Vec::new();
+    let mut proj_to_remove: Vec<Entity> = Vec::with_capacity(projectiles.len());
     let mut ast_hits: Vec<HitData> = Vec::new();
 
     for p in &projectiles {

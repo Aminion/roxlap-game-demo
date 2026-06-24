@@ -101,14 +101,13 @@ fn enqueue_chunks(
     queued_chunks: &mut QueuedChunks,
     chunk_queue: &mut ChunkQueue,
 ) {
-    let to_enqueue: Vec<_> = missing_chunks(ship_pos, LOAD_RADIUS, &visited.0)
-        .filter(|c| !queued_chunks.0.contains(c))
-        .collect();
-    for chunk in to_enqueue {
-        // Mark as queued immediately so subsequent threshold crossings don't re-enqueue.
-        // `visited` is only updated when the chunk is actually generated.
-        chunk_queue.0.push_back(chunk);
-        queued_chunks.0.insert(chunk);
+    for chunk in missing_chunks(ship_pos, LOAD_RADIUS, &visited.0) {
+        if !queued_chunks.0.contains(&chunk) {
+            // Mark as queued immediately so subsequent threshold crossings don't re-enqueue.
+            // `visited` is only updated when the chunk is actually generated.
+            chunk_queue.0.push_back(chunk);
+            queued_chunks.0.insert(chunk);
+        }
     }
 }
 
