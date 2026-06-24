@@ -153,3 +153,98 @@ pub fn build_asteroid(
 
     (model, mineral_candidates)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn asteroid(collect_minerals: bool) -> (SpriteModel, Vec<UVec3>) {
+        build_asteroid(0, 0, 0, 0, collect_minerals)
+    }
+
+    // ── structure ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn model_dims_correct() {
+        let (m, _) = asteroid(false);
+        assert_eq!(m.dims, [ASTEROID_VOXEL_SIZE; 3]);
+    }
+
+    #[test]
+    fn pivot_at_center() {
+        let (m, _) = asteroid(false);
+        let expected = ASTEROID_VOXEL_SIZE as f32 / 2.0;
+        assert_eq!(m.pivot, [expected; 3]);
+    }
+
+    #[test]
+    fn model_is_nonempty() {
+        let (m, _) = asteroid(false);
+        assert!(!m.colors.is_empty());
+    }
+
+    #[test]
+    fn color_offsets_consistent() {
+        let (m, _) = asteroid(true);
+        let n_cols = (m.dims[0] * m.dims[1]) as usize;
+        assert_eq!(m.color_offsets.len(), n_cols + 1);
+        assert_eq!(*m.color_offsets.last().unwrap() as usize, m.colors.len());
+    }
+
+    // ── mineral behavior ──────────────────────────────────────────────────────
+
+    #[test]
+    fn no_minerals_when_disabled() {
+        let (_, minerals) = asteroid(false);
+        assert!(minerals.is_empty());
+    }
+
+    #[test]
+    fn mineral_count_in_range_when_enabled() {
+        for seed in [0u64, 1, 42, 0xdead_beef] {
+            let (_, minerals) = build_asteroid(seed, seed, seed, seed, true);
+            assert!(
+                (3..=5).contains(&minerals.len()),
+                "expected 3–5 minerals, got {} with seed {seed}",
+                minerals.len()
+            );
+        }
+    }
+
+    // ── invariants ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn minerals_within_model_bounds() {
+        let vsid = ASTEROID_VOXEL_SIZE;
+        let (_, minerals) = asteroid(true);
+        for &m in &minerals {
+            assert!(
+                m.x < vsid && m.y < vsid && m.z < vsid,
+                "mineral {m} is out of model bounds"
+            );
+        }
+    }
+
+    #[test]
+    fn minerals_are_occupied_voxels() {
+        let (model, minerals) = asteroid(true);
+        let vsid = ASTEROID_VOXEL_SIZE;
+        let occ_words = model.occ_words_per_col as usize;
+        for &m in &minerals {
+            let col = (m.x + m.y * vsid) as usize;
+            let word = model.occupancy[col * occ_words + m.z as usize / 32];
+            let occupied = (word >> (m.z % 32)) & 1 == 1;
+            assert!(occupied, "mineral at {m} is not an occupied voxel");
+        }
+    }
+
+    // ── determinism ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn output_is_deterministic() {
+        let (m1, min1) = build_asteroid(42, 7, 13, 99, true);
+        let (m2, min2) = build_asteroid(42, 7, 13, 99, true);
+        assert_eq!(m1.colors, m2.colors);
+        assert_eq!(min1, min2);
+    }
+}
