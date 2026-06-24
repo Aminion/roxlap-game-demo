@@ -45,7 +45,7 @@ pub fn retrieval(
         let mut q = <(Entity, &CrystalMarker, &NewtonBody, &Aabb)>::query();
         q.iter(world)
             .filter_map(|(entity, _, body, aabb)| {
-                let t = ray_aabb(miner_pos, forward, body.pos, aabb.half_extent as f64)?;
+                let t = ray_aabb(miner_pos, forward, aabb.min, aabb.max)?;
                 Some((*entity, body.pos, t))
             })
             .min_by(|a, b| a.2.total_cmp(&b.2))

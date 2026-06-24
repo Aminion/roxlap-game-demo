@@ -31,6 +31,7 @@ use sdl2::{
 use crate::components::{cannon::Cannon, miner::Miner};
 use crate::input::PlayerInput;
 use crate::systems::{
+    aabb::aabb_update_system,
     autopilot::autopilot_system,
     camera::camera_update_system,
     crystal::crystal_system,
@@ -244,6 +245,7 @@ fn build_schedule() -> Schedule {
         // Flush so newly-spawned asteroid entities are in the world before shooting
         // queries them; prevents stale SpriteId slots if a despawn displaces a just-spawned entity.
         .flush()
+        .add_system(aabb_update_system())
         .add_system(shooting_system())
         .add_system(projectile_system())
         .add_system(crystal_system())

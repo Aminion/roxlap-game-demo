@@ -3,9 +3,7 @@ use legion::{system, systems::CommandBuffer, world::SubWorld, *};
 use roxlap_gpu::GpuRenderer;
 
 use crate::{
-    components::{
-        aabb::Aabb, cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile,
-    },
+    components::{cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile},
     systems::energy::{Energy, SHOT_COST},
     world::{build_projectile_sprite_model, spawn_sprite},
     Dt, SpriteData,
@@ -61,6 +59,5 @@ pub fn shooting(
             angular_vel: DVec3::ZERO,
         },
         sprite,
-        Aabb { half_extent: 0.5 },
     ));
 }

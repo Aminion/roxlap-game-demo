@@ -25,10 +25,10 @@ pub fn hash_to_signed(v: u64) -> f64 {
 }
 
 /// Slab-method ray–AABB test. Returns the entry t along `ray_dir`, or `None`.
-pub fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, center: DVec3, half: f64) -> Option<f64> {
+pub fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, min: DVec3, max: DVec3) -> Option<f64> {
     let inv = ray_dir.recip();
-    let t1 = (center - half - ray_origin) * inv;
-    let t2 = (center + half - ray_origin) * inv;
+    let t1 = (min - ray_origin) * inv;
+    let t2 = (max - ray_origin) * inv;
     let t_min = t1.min(t2).max_element();
     let t_max = t1.max(t2).min_element();
     if t_max < t_min || t_max < 0.0 {

@@ -73,25 +73,26 @@ pub fn projectile(
         vel: DVec3,
         angular_vel: DVec3,
         orientation: DQuat,
-        half_extent: f32,
+        aabb_min: DVec3,
+        aabb_max: DVec3,
         mass: f64,
         chain_id: u32,
         initial_voxel_count: u32,
     }
     let mut asteroids: Vec<AstState> = Vec::with_capacity(loaded.0.len());
     for &entity in &loaded.0 {
-        let Ok(entry) = world.entry_ref(entity) else {
-            continue;
-        };
-        let Ok(body) = entry.get_component::<NewtonBody>() else {
-            continue;
-        };
-        let Ok(aabb) = entry.get_component::<Aabb>() else {
-            continue;
-        };
-        let Ok(sprite) = entry.get_component::<Sprite>() else {
-            continue;
-        };
+        let entry = world
+            .entry_ref(entity)
+            .expect("loaded asteroid entity missing");
+        let body = entry
+            .get_component::<NewtonBody>()
+            .expect("loaded asteroid missing NewtonBody");
+        let aabb = entry
+            .get_component::<Aabb>()
+            .expect("loaded asteroid missing Aabb");
+        let sprite = entry
+            .get_component::<Sprite>()
+            .expect("loaded asteroid missing Sprite");
         let initial_voxel_count = entry
             .get_component::<AsteroidVoxelInfo>()
             .map(|v| v.initial_count)
@@ -102,7 +103,8 @@ pub fn projectile(
             vel: body.vel,
             angular_vel: body.angular_vel,
             orientation: body.orientation,
-            half_extent: aabb.half_extent,
+            aabb_min: aabb.min,
+            aabb_max: aabb.max,
             mass: body.mass,
             chain_id: sprite.chain_id,
             initial_voxel_count,
@@ -118,7 +120,8 @@ pub fn projectile(
         ast_angular_vel: DVec3,
         ast_mass: f64,
         ast_orientation: DQuat,
-        ast_half_extent: f32,
+        ast_aabb_min: DVec3,
+        ast_aabb_max: DVec3,
         hit_voxel: UVec3,
         proj_vel: DVec3,
         proj_mass: f64,
@@ -133,9 +136,9 @@ pub fn projectile(
             continue;
         }
         for a in &asteroids {
-            let h = (a.half_extent + 0.5) as f64;
-            let d = p.pos - a.pos;
-            let hit_voxel = if d.x.abs() <= h && d.y.abs() <= h && d.z.abs() <= h {
+            let expanded_min = a.aabb_min - DVec3::splat(0.5);
+            let expanded_max = a.aabb_max + DVec3::splat(0.5);
+            let hit_voxel = if p.pos.cmpge(expanded_min).all() && p.pos.cmple(expanded_max).all() {
                 voxel_hit(
                     p.pos,
                     a.pos,
@@ -156,7 +159,8 @@ pub fn projectile(
                         ast_angular_vel: a.angular_vel,
                         ast_mass: a.mass,
                         ast_orientation: a.orientation,
-                        ast_half_extent: a.half_extent,
+                        ast_aabb_min: a.aabb_min,
+                        ast_aabb_max: a.aabb_max,
                         hit_voxel,
                         proj_vel: p.vel,
                         proj_mass: p.mass,
@@ -293,7 +297,7 @@ pub fn projectile(
             let lever = hit.ast_orientation * hit_local; // world space
             let effective_impulse = hit.proj_vel * hit.proj_mass * HIT_IMPULSE_FACTOR;
             let delta_vel = effective_impulse / hit.ast_mass;
-            let radius = hit.ast_half_extent as f64;
+            let radius = ((hit.ast_aabb_max - hit.ast_aabb_min) * 0.5).max_element();
             let moment = SOLID_SPHERE_INERTIA * hit.ast_mass * radius * radius;
             let delta_omega = lever.cross(effective_impulse) / moment;
 
@@ -324,7 +328,7 @@ pub fn projectile(
                 angular_vel: c.spin,
             },
             sprite,
-            Aabb { half_extent: 1.5 },
+            Aabb::empty(),
         ));
     }
 }

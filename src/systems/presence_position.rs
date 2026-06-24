@@ -14,12 +14,8 @@ use crate::{
         presence_position::PresencePosition,
         sprite_id::Sprite,
     },
-    generation::{
-        asteroid::ASTEROID_VOXEL_SIZE,
-        chunks::{
-            compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, CHUNK_SIZE,
-            LOAD_RADIUS,
-        },
+    generation::chunks::{
+        compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, CHUNK_SIZE, LOAD_RADIUS,
     },
     world::spawn_sprite,
     ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, SpriteData, VisitedChunks,
@@ -178,9 +174,7 @@ fn drain_chunk_queue(
                     AsteroidMarker,
                     AsteroidMinerals { points: minerals },
                     AsteroidVoxelInfo { initial_count },
-                    Aabb {
-                        half_extent: ASTEROID_VOXEL_SIZE as f32 / 2.0,
-                    },
+                    Aabb::empty(),
                     sprite,
                     NewtonBody {
                         mass: 1.0,
