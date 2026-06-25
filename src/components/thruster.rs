@@ -20,3 +20,22 @@ impl ThrusterBank {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn max_rot_accel_formula() {
+        let b = ThrusterBank::new(2.0, 3.0, 6.0, 10.0);
+        let expected = 5.0 * 6.0 / (2.0 * 3.0);
+        assert!((b.max_rot_accel - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn max_lin_accel_formula() {
+        let b = ThrusterBank::new(4.0, 1.0, 1.0, 20.0);
+        let expected = 20.0 / 4.0;
+        assert!((b.max_lin_accel - expected).abs() < 1e-10);
+    }
+}

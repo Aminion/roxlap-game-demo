@@ -319,4 +319,46 @@ mod tests {
         assert_eq!(m1.colors, m2.colors);
         assert_eq!(min1, min2);
     }
+
+    // ── build_crystal ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn crystal_dims_and_pivot() {
+        let m = build_crystal();
+        assert_eq!(m.dims, [3, 3, 3]);
+        assert_eq!(m.pivot, [1.5, 1.5, 1.5]);
+    }
+
+    #[test]
+    fn crystal_voxel_count() {
+        // 1 centre + 6 face neighbours = 7 voxels.
+        assert_eq!(build_crystal().colors.len(), 7);
+    }
+
+    #[test]
+    fn crystal_color_offsets_consistent() {
+        let m = build_crystal();
+        let n_cols = (m.dims[0] * m.dims[1]) as usize;
+        assert_eq!(m.color_offsets.len(), n_cols + 1);
+        assert_eq!(*m.color_offsets.last().unwrap() as usize, m.colors.len());
+    }
+
+    #[test]
+    fn crystal_arm_voxels_all_occupied() {
+        let m = build_crystal();
+        let arm: &[UVec3] = &[
+            UVec3::new(0, 1, 1),
+            UVec3::new(1, 0, 1),
+            UVec3::new(1, 1, 0),
+            UVec3::new(1, 1, 1),
+            UVec3::new(1, 1, 2),
+            UVec3::new(1, 2, 1),
+            UVec3::new(2, 1, 1),
+        ];
+        for &v in arm {
+            let col = (v.x + v.y * m.dims[0]) as usize;
+            let word = m.occupancy[col * m.occ_words_per_col as usize + v.z as usize / 32];
+            assert!((word >> (v.z % 32)) & 1 == 1, "voxel {v} not occupied");
+        }
+    }
 }

@@ -507,10 +507,13 @@ mod tests {
     #[test]
     fn carve_removes_voxels_in_sphere() {
         let mut model = make_5x5x5();
-        let before = model.colors.len();
-        // Carve radius 1 at centre (2,2,2) — removes the 7-voxel cross (1+6).
+        // Radius 1 at (2,2,2): d²≤1 selects centre + 6 face neighbours = 7 voxels.
         carve_sphere(&mut model, IVec3::new(2, 2, 2), 1);
-        assert!(model.colors.len() < before, "some voxels should be removed");
+        assert_eq!(
+            model.colors.len(),
+            118,
+            "125 − 7 = 118 voxels should remain"
+        );
     }
 
     #[test]
@@ -524,8 +527,8 @@ mod tests {
 
     #[test]
     fn hit_impulse_delta_vel_direction() {
-        // Projectile moving along +X hits the asteroid centre: lever is zero,
-        // so delta_omega should be near zero and delta_vel should be along +X.
+        // Projectile along +X; voxel (0,0,0) with pivot at origin →
+        // hit_local = (0.5, 0.5, 0.5), lever is non-zero but impulse is along X.
         let (dv, domega) = hit_impulse(
             DVec3::X,
             1.0,
@@ -533,12 +536,10 @@ mod tests {
             5.0,
             DQuat::IDENTITY,
             UVec3::new(0, 0, 0),
-            DVec3::ZERO, // pivot at origin → hit_local = (0.5, 0.5, 0.5)
+            DVec3::ZERO,
         );
         assert!(dv.x > 0.0, "delta_vel should point along +X");
         assert!(dv.y.abs() < 1e-10 && dv.z.abs() < 1e-10);
-        // Lever is (0.5, 0.5, 0.5), impulse is along X: cross product is non-zero
-        // but we just check it's finite.
         assert!(domega.is_finite());
     }
 

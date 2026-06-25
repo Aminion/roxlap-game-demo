@@ -62,4 +62,73 @@ mod tests {
         let r = reject(DVec3::Y * 5.0, DVec3::Y);
         assert!(r.length() < 1e-12);
     }
+
+    // ── ray_aabb ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ray_aabb_forward_hit() {
+        let t = ray_aabb(
+            DVec3::new(-5.0, 0.0, 0.0),
+            DVec3::X,
+            DVec3::splat(-1.0),
+            DVec3::splat(1.0),
+        );
+        assert!((t.unwrap() - 4.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn ray_aabb_miss() {
+        // Ray passes above the box in Y.
+        assert!(ray_aabb(
+            DVec3::new(-5.0, 2.0, 0.0),
+            DVec3::X,
+            DVec3::splat(-1.0),
+            DVec3::splat(1.0),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn ray_aabb_origin_inside() {
+        // t_min is negative; the function returns t_max (exit distance).
+        let t = ray_aabb(DVec3::ZERO, DVec3::X, DVec3::splat(-1.0), DVec3::splat(1.0));
+        assert!((t.unwrap() - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn ray_aabb_pointing_away() {
+        // Both t_min and t_max are negative.
+        assert!(ray_aabb(
+            DVec3::new(5.0, 0.0, 0.0),
+            DVec3::X,
+            DVec3::splat(-1.0),
+            DVec3::splat(1.0),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn ray_aabb_diagonal_hit() {
+        // Ray from (-2,-2,0) along (1,1,0)/√2 enters at (-1,-1,0), t = √2.
+        let dir = DVec3::new(1.0, 1.0, 0.0).normalize();
+        let t = ray_aabb(
+            DVec3::new(-2.0, -2.0, 0.0),
+            dir,
+            DVec3::splat(-1.0),
+            DVec3::splat(1.0),
+        );
+        assert!((t.unwrap() - 2f64.sqrt()).abs() < 1e-10);
+    }
+
+    #[test]
+    fn ray_aabb_negative_direction_hit() {
+        // Ray from (5,0,0) along (-1,0,0) hits box at x=1, t=4.
+        let t = ray_aabb(
+            DVec3::new(5.0, 0.0, 0.0),
+            DVec3::NEG_X,
+            DVec3::splat(-1.0),
+            DVec3::splat(1.0),
+        );
+        assert!((t.unwrap() - 4.0).abs() < 1e-10);
+    }
 }
