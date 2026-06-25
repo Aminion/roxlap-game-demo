@@ -12,7 +12,6 @@ roxlap-gpu = { version = "0.14.0", features = ["hud"] }
 roxlap-scene = "0.14.0"
 roxlap-render = { version = "0.14.0", features = ["hud"] }
 raw-window-handle = "0.6.2"
-bytemuck = "1.25.0"
 egui = "0.34.3"
 glam = "0.33.1"
 crossbeam = "0.8.4"

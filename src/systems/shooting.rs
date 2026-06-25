@@ -1,12 +1,13 @@
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
+use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile},
     systems::energy::{Energy, SHOT_COST},
     world::{build_projectile_sprite_model, spawn_sprite},
-    Dt, SpriteData,
+    Dt,
 };
 
 const PROJECTILE_SPEED: f64 = 300.0;
@@ -22,7 +23,7 @@ pub fn shooting(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
     #[resource] renderer: &mut SceneRenderer,
-    #[resource] sprite_data: &mut SpriteData,
+    #[resource] registry: &mut SpriteModelRegistry,
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
 ) {
@@ -41,11 +42,7 @@ pub fn shooting(
         (pos, vel)
     };
 
-    let sprite = spawn_sprite(
-        renderer,
-        &mut sprite_data.registry,
-        build_projectile_sprite_model(),
-    );
+    let sprite = spawn_sprite(renderer, registry, build_projectile_sprite_model());
 
     commands.push((
         Projectile {

@@ -1,19 +1,18 @@
 use glam::DVec3;
 use legion::{system, world::SubWorld, *};
 
-use crate::{
-    components::{aabb::Aabb, newton_body::NewtonBody, sprite_id::Sprite},
-    SpriteData,
-};
+use roxlap_gpu::SpriteModelRegistry;
+
+use crate::components::{aabb::Aabb, newton_body::NewtonBody, sprite_id::Sprite};
 
 #[system]
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
 #[write_component(Aabb)]
-pub fn aabb_update(world: &mut SubWorld, #[resource] sprite_data: &SpriteData) {
+pub fn aabb_update(world: &mut SubWorld, #[resource] registry: &SpriteModelRegistry) {
     let mut q = <(&Sprite, &NewtonBody, &mut Aabb)>::query();
     for (sprite, body, aabb) in q.iter_mut(world) {
-        let model = sprite_data.registry.model(sprite.chain_id);
+        let model = registry.model(sprite.chain_id);
         let vws = model.voxel_world_size as f64;
         let pivot = DVec3::from(model.pivot.map(|p| p as f64));
         let dims = DVec3::from(model.dims.map(|d| d as f64));

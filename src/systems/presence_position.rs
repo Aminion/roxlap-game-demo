@@ -1,6 +1,7 @@
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rayon::prelude::*;
+use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::SceneRenderer;
 
 use crate::{
@@ -17,8 +18,7 @@ use crate::{
     },
     systems::sprite::perform_despawn,
     world::spawn_sprite,
-    ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, SpriteData, VisitedChunks,
-    WorldSeed,
+    ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, VisitedChunks, WorldSeed,
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
@@ -36,7 +36,7 @@ pub fn presence_position_update(
     #[resource] visited: &mut VisitedChunks,
     #[resource] loaded: &mut LoadedAsteroids,
     #[resource] renderer: &mut SceneRenderer,
-    #[resource] sprite_data: &mut SpriteData,
+    #[resource] sprite_data: &mut SpriteModelRegistry,
     #[resource] world_seed: &WorldSeed,
     #[resource] pending_compact: &mut PendingCompact,
     #[resource] chunk_queue: &mut ChunkQueue,
@@ -114,7 +114,7 @@ fn drain_chunk_queue(
     visited: &mut VisitedChunks,
     loaded: &mut LoadedAsteroids,
     renderer: &mut SceneRenderer,
-    sprite_data: &mut SpriteData,
+    sprite_data: &mut SpriteModelRegistry,
     commands: &mut CommandBuffer,
     world_seed: u64,
 ) {
@@ -165,8 +165,8 @@ fn drain_chunk_queue(
                 angular_vel,
             } => {
                 visited.0.insert(chunk);
-                let sprite = spawn_sprite(renderer, &mut sprite_data.registry, model);
-                let initial_count = sprite_data.registry.model(sprite.chain_id).colors.len() as u32;
+                let initial_count = model.colors.len() as u32;
+                let sprite = spawn_sprite(renderer, sprite_data, model);
                 let entity = commands.push((
                     AsteroidMarker,
                     AsteroidMinerals { points: minerals },

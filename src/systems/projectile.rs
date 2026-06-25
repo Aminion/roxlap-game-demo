@@ -2,6 +2,7 @@ use glam::{DQuat, DVec3, IVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
 use roxlap_gpu::SpriteModel;
+use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::{SceneRenderer, SpriteModelId};
 
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
     },
     systems::sprite::perform_despawn,
     world::{build_crystal_sprite_model, spawn_sprite, sprite_model_to_kv6},
-    Dt, LoadedAsteroids, SpriteData,
+    Dt, LoadedAsteroids,
 };
 
 /// Voxel radius of the crater carved on each hit.
@@ -42,7 +43,7 @@ pub fn projectile(
     #[resource] dt: &Dt,
     #[resource] renderer: &mut SceneRenderer,
     #[resource] loaded: &mut LoadedAsteroids,
-    #[resource] sprite_data: &mut SpriteData,
+    #[resource] registry: &mut SpriteModelRegistry,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -144,12 +145,7 @@ pub fn projectile(
             let expanded_min = a.aabb_min - DVec3::splat(0.5);
             let expanded_max = a.aabb_max + DVec3::splat(0.5);
             let hit_voxel = if p.pos.cmpge(expanded_min).all() && p.pos.cmple(expanded_max).all() {
-                voxel_hit(
-                    p.pos,
-                    a.pos,
-                    a.orientation,
-                    sprite_data.registry.model(a.chain_id),
-                )
+                voxel_hit(p.pos, a.pos, a.orientation, registry.model(a.chain_id))
             } else {
                 None
             };
@@ -186,19 +182,10 @@ pub fn projectile(
         perform_despawn(*proj_entity, world, commands, renderer);
     }
 
-    // Crystal spawn data collected during hit processing; spawned after all despawns so
-    // their GPU slots aren't displaced by subsequent swap-removes in the same batch.
-    struct PendingCrystal {
-        pos: DVec3,
-        vel: DVec3,
-        spin: DVec3,
-    }
-    let mut pending_crystals: Vec<PendingCrystal> = Vec::new();
-
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
     for hit in ast_hits {
         let hv = hit.hit_voxel;
-        let pivot = sprite_data.registry.model(hit.ast_chain_id).pivot;
+        let pivot = registry.model(hit.ast_chain_id).pivot;
         let pivot_vec = DVec3::from(pivot.map(|p| p as f64));
 
         // Read minerals from the world only for asteroids that were actually hit.
@@ -215,7 +202,7 @@ pub fn projectile(
         };
 
         let (empty, current_voxel_count) = carve_sphere(
-            sprite_data.registry.model_mut(hit.ast_chain_id),
+            registry.model_mut(hit.ast_chain_id),
             hv.as_ivec3(),
             HIT_CARVE_RADIUS,
         );
@@ -243,17 +230,25 @@ pub fn projectile(
             );
             let eject_dir = (crystal_world - hit.ast_pos).normalize_or_zero();
             let eject_speed = rng.random_range(0.5f64..2.0);
-            pending_crystals.push(PendingCrystal {
-                pos: crystal_world,
-                vel: hit.ast_vel + eject_dir * eject_speed,
-                spin,
-            });
+            let sprite = spawn_sprite(renderer, registry, build_crystal_sprite_model());
+            commands.push((
+                CrystalMarker,
+                NewtonBody {
+                    mass: 0.01,
+                    pos: crystal_world,
+                    vel: hit.ast_vel + eject_dir * eject_speed,
+                    orientation: DQuat::IDENTITY,
+                    angular_vel: spin,
+                },
+                sprite,
+                Aabb::empty(),
+            ));
         }
 
         // Re-upload the carved model to the renderer.
         renderer.refresh_sprite_model(
             hit.ast_model_id,
-            &sprite_model_to_kv6(sprite_data.registry.model(hit.ast_chain_id)),
+            &sprite_model_to_kv6(registry.model(hit.ast_chain_id)),
         );
 
         if destroy {
@@ -282,27 +277,6 @@ pub fn projectile(
                 }
             }
         }
-    }
-
-    // All despawns done — safe to append crystals; their slots won't be displaced.
-    for c in pending_crystals {
-        let sprite = spawn_sprite(
-            renderer,
-            &mut sprite_data.registry,
-            build_crystal_sprite_model(),
-        );
-        commands.push((
-            CrystalMarker,
-            NewtonBody {
-                mass: 0.01,
-                pos: c.pos,
-                vel: c.vel,
-                orientation: DQuat::IDENTITY,
-                angular_vel: c.spin,
-            },
-            sprite,
-            Aabb::empty(),
-        ));
     }
 }
 

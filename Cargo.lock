@@ -1507,7 +1507,6 @@ checksum = "dba8974bbac94c5eb10c54612f58cd25c84fb1d6ca72ca8ca9b586f94d068a9c"
 name = "roxlap-game-demo"
 version = "0.1.0"
 dependencies = [
- "bytemuck",
  "crossbeam",
  "egui",
  "glam 0.33.1",

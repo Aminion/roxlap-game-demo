@@ -72,15 +72,6 @@ pub struct FrameTimer(pub Instant);
 
 // --- GPU resources ---
 
-/// Scene container for the voxel world (passed to the renderer each frame).
-pub struct WorldScene(pub roxlap_scene::Scene);
-
-/// CPU-side sprite model registry, kept alive so future edits (destruction)
-/// can call `gpu.update_sprite_model(&sprite_data.registry, chain_id)`.
-pub struct SpriteData {
-    pub registry: SpriteModelRegistry,
-}
-
 /// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
 pub struct VisitedChunks(pub HashSet<IVec3>);
 
@@ -175,7 +166,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let (sky_pixels, sky_w, sky_h) = generate_star_sky(WORLD_SEED);
     renderer.set_sky_panorama(&sky_pixels, sky_w, sky_h);
 
-    let world_scene = WorldScene(roxlap_scene::Scene::new());
+    let world_scene = roxlap_scene::Scene::new();
 
     let sprite_registry = SpriteModelRegistry::new();
 
@@ -215,9 +206,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(PerformanceInfo::new());
     resources.insert(renderer);
     resources.insert(world_scene);
-    resources.insert(SpriteData {
-        registry: sprite_registry,
-    });
+    resources.insert(sprite_registry);
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
@@ -240,8 +229,7 @@ fn build_schedule() -> Schedule {
         .add_system(retrieval_system())
         .add_system(newton_body_system())
         .add_system(presence_position_update_system())
-        // Flush so newly-spawned asteroid entities are in the world before shooting
-        // queries them; prevents stale SpriteId slots if a despawn displaces a just-spawned entity.
+        // Flush so newly-spawned asteroid entities are visible to subsequent systems.
         .flush()
         .add_system(aabb_update_system())
         .add_system(shooting_system())
@@ -270,7 +258,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     }
 
     // Reset CPU sprite registry so chain_ids restart from 0.
-    resources.get_mut::<SpriteData>().unwrap().registry = SpriteModelRegistry::new();
+    *resources.get_mut::<SpriteModelRegistry>().unwrap() = SpriteModelRegistry::new();
 
     // Rebuild ECS world with a fresh miner.
     *world = World::default();

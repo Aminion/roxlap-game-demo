@@ -9,7 +9,7 @@ use crate::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
         performance_info::PerformanceInfo,
     },
-    AutopilotTarget, ScreenState, WorldScene,
+    AutopilotTarget, ScreenState,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -19,7 +19,7 @@ use crate::{
 #[read_component(NewtonBody)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
-    #[resource] world_scene: &mut WorldScene,
+    #[resource] scene: &mut roxlap_scene::Scene,
     #[resource] screen: &ScreenState,
     #[resource] autopilot_target: &AutopilotTarget,
     #[resource] egui_ctx: &egui::Context,
@@ -67,7 +67,7 @@ pub fn render(
         draw_sprites: true,
         side_shades: [0; 6],
     };
-    renderer.render(&mut world_scene.0, &camera, &frame);
+    renderer.render(scene, &camera, &frame);
 
     // Project target_dir into screen space.
     let target_screen = {
