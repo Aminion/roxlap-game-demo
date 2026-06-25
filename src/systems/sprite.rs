@@ -21,6 +21,8 @@ pub fn perform_despawn(
         return;
     };
     renderer.remove_sprite_instance(sprite.instance_id);
-    renderer.remove_sprite_model(sprite.model_id);
+    if sprite.owns_model {
+        renderer.remove_sprite_model(sprite.model_id);
+    }
     commands.remove(entity);
 }

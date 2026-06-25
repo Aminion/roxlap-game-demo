@@ -45,7 +45,10 @@ use crate::systems::{
     shooting::shooting_system,
     thruster::thruster_system,
 };
-use crate::world::{generate_star_sky, miner_initial_forward, populate_world};
+use crate::world::{
+    generate_star_sky, miner_initial_forward, populate_world, register_shared_sprites,
+    CrystalModel, ProjectileModel,
+};
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
 const INITIAL_WINDOW_HEIGHT: u32 = 720;
@@ -168,7 +171,9 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
 
     let world_scene = roxlap_scene::Scene::new();
 
-    let sprite_registry = SpriteModelRegistry::new();
+    let mut sprite_registry = SpriteModelRegistry::new();
+    let (projectile_model, crystal_model) =
+        register_shared_sprites(&mut renderer, &mut sprite_registry);
 
     resources.insert(ScreenState {
         width: INITIAL_WINDOW_WIDTH,
@@ -207,6 +212,8 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(renderer);
     resources.insert(world_scene);
     resources.insert(sprite_registry);
+    resources.insert(projectile_model);
+    resources.insert(crystal_model);
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
@@ -259,6 +266,15 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
 
     // Reset CPU sprite registry so chain_ids restart from 0.
     *resources.get_mut::<SpriteModelRegistry>().unwrap() = SpriteModelRegistry::new();
+
+    // Re-register the shared projectile/crystal models on the clean slate.
+    let (proj, crystal) = {
+        let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
+        let mut registry = resources.get_mut::<SpriteModelRegistry>().unwrap();
+        register_shared_sprites(&mut renderer, &mut registry)
+    };
+    *resources.get_mut::<ProjectileModel>().unwrap() = proj;
+    *resources.get_mut::<CrystalModel>().unwrap() = crystal;
 
     // Rebuild ECS world with a fresh miner.
     *world = World::default();

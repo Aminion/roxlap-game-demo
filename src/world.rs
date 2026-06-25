@@ -7,7 +7,7 @@ use rand::{
 };
 use roxlap_core::Camera;
 use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
-use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer};
+use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer, SpriteModelId};
 
 use crate::components::{
     camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
@@ -111,6 +111,57 @@ pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
     })
 }
 
+pub struct ProjectileModel {
+    pub model_id: SpriteModelId,
+    pub chain_id: u32,
+}
+
+pub struct CrystalModel {
+    pub model_id: SpriteModelId,
+    pub chain_id: u32,
+}
+
+/// Register one shared model for projectiles and one for crystals.
+/// Called once at startup and again after every `restart_world`.
+pub fn register_shared_sprites(
+    renderer: &mut SceneRenderer,
+    registry: &mut SpriteModelRegistry,
+) -> (ProjectileModel, CrystalModel) {
+    let proj_chain_id = registry.add(build_projectile_sprite_model());
+    let proj_kv6 = sprite_model_to_kv6(registry.model(proj_chain_id));
+    let proj_model_id = renderer.add_sprite_model(&proj_kv6);
+
+    let crystal_chain_id = registry.add(build_crystal_sprite_model());
+    let crystal_kv6 = sprite_model_to_kv6(registry.model(crystal_chain_id));
+    let crystal_model_id = renderer.add_sprite_model(&crystal_kv6);
+
+    (
+        ProjectileModel {
+            model_id: proj_model_id,
+            chain_id: proj_chain_id,
+        },
+        CrystalModel {
+            model_id: crystal_model_id,
+            chain_id: crystal_chain_id,
+        },
+    )
+}
+
+/// Spawn an additional instance of a pre-registered shared model (no model ownership).
+pub fn spawn_shared_instance(
+    renderer: &mut SceneRenderer,
+    model_id: SpriteModelId,
+    chain_id: u32,
+) -> Sprite {
+    let instance_id = renderer.add_sprite_instance_posed(model_id, DynSpriteTransform::default());
+    Sprite {
+        chain_id,
+        model_id,
+        instance_id,
+        owns_model: false,
+    }
+}
+
 /// Register a sprite model with both the CPU registry and the renderer.
 pub fn spawn_sprite(
     renderer: &mut SceneRenderer,
@@ -125,6 +176,7 @@ pub fn spawn_sprite(
         chain_id,
         model_id,
         instance_id,
+        owns_model: true,
     }
 }
 

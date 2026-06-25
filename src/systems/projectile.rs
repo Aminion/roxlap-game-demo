@@ -15,7 +15,7 @@ use crate::{
         sprite_id::Sprite,
     },
     systems::sprite::perform_despawn,
-    world::{build_crystal_sprite_model, spawn_sprite, sprite_model_to_kv6},
+    world::{spawn_shared_instance, sprite_model_to_kv6, CrystalModel},
     Dt, LoadedAsteroids,
 };
 
@@ -44,6 +44,7 @@ pub fn projectile(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] loaded: &mut LoadedAsteroids,
     #[resource] registry: &mut SpriteModelRegistry,
+    #[resource] crystal_model: &CrystalModel,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -230,7 +231,8 @@ pub fn projectile(
             );
             let eject_dir = (crystal_world - hit.ast_pos).normalize_or_zero();
             let eject_speed = rng.random_range(0.5f64..2.0);
-            let sprite = spawn_sprite(renderer, registry, build_crystal_sprite_model());
+            let sprite =
+                spawn_shared_instance(renderer, crystal_model.model_id, crystal_model.chain_id);
             commands.push((
                 CrystalMarker,
                 NewtonBody {
