@@ -2,6 +2,7 @@ mod components;
 mod generation;
 mod input;
 mod math;
+mod sprites;
 mod systems;
 #[cfg(test)]
 mod test_utils;

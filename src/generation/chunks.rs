@@ -5,8 +5,8 @@ use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::SpriteModel;
 
 use crate::{
-    generation::asteroid::build_asteroid,
     math::{hash_to_signed, splitmix64},
+    sprites::build_asteroid,
 };
 
 /// Side length of one chunk in world units.

@@ -28,16 +28,16 @@ pub fn shooting(
 ) {
     let (spawn_pos, spawn_vel) = {
         let mut miner_q = <(&Miner, &NewtonBody, &mut Cannon)>::query();
-        let (_, body, canon) = miner_q.iter_mut(world).next().expect("miner missing");
-        canon.cooldown = (canon.cooldown - dt.0).max(0.0);
-        if !canon.firing || canon.cooldown > 0.0 || energy.current < SHOT_COST {
+        let (_, body, cannon) = miner_q.iter_mut(world).next().expect("miner missing");
+        cannon.cooldown = (cannon.cooldown - dt.0).max(0.0);
+        if !cannon.firing || cannon.cooldown > 0.0 || energy.current < SHOT_COST {
             return;
         }
         energy.current -= SHOT_COST;
         let forward = (body.orientation * DVec3::NEG_Z).normalize();
         let vel = body.vel + forward * PROJECTILE_SPEED;
         let pos = body.pos + forward * PROJECTILE_SPAWN_OFFSET;
-        canon.cooldown = CANNON_COOLDOWN;
+        cannon.cooldown = CANNON_COOLDOWN;
         (pos, vel)
     };
 
