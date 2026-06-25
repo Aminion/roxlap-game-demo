@@ -1,6 +1,6 @@
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
-use roxlap_gpu::GpuRenderer;
+use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile},
@@ -21,7 +21,7 @@ const PROJECTILE_SPAWN_OFFSET: f64 = 3.0;
 pub fn shooting(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
-    #[resource] gpu: &mut GpuRenderer,
+    #[resource] renderer: &mut SceneRenderer,
     #[resource] sprite_data: &mut SpriteData,
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
@@ -42,8 +42,8 @@ pub fn shooting(
     };
 
     let sprite = spawn_sprite(
+        renderer,
         &mut sprite_data.registry,
-        gpu,
         build_projectile_sprite_model(),
     );
 

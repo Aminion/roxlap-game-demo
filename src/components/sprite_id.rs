@@ -1,8 +1,12 @@
-/// GPU sprite binding: instance buffer slot and model chain ID.
+use roxlap_render::{SpriteInstanceId, SpriteModelId};
+
+/// Renderer + CPU-registry binding for a sprite entity.
 ///
-/// `slot` is the index into the GPU instance buffer (updated on swap-remove).
-/// `chain_id` is the model registry index (stable until `compact_sprite_models`).
+/// `chain_id` is the dense occupancy registry index (stable; used by game
+/// logic for hit detection and carving).  `model_id` / `instance_id` are
+/// the stable `SceneRenderer` handles — swap-remove is transparent to callers.
 pub struct Sprite {
-    pub slot: u32,
     pub chain_id: u32,
+    pub model_id: SpriteModelId,
+    pub instance_id: SpriteInstanceId,
 }

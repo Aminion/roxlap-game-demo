@@ -13,8 +13,8 @@ pub fn camera_update(world: &mut SubWorld) {
     let fwd = body.orientation * DVec3::NEG_Z;
     let right = body.orientation * DVec3::X;
     let up = body.orientation * DVec3::Y;
-    cam.0.position = body.pos.as_vec3().to_array();
-    cam.0.forward = fwd.as_vec3().to_array();
-    cam.0.right = right.as_vec3().to_array();
-    cam.0.down = (-up).as_vec3().to_array();
+    cam.0.pos = body.pos.to_array();
+    cam.0.forward = fwd.to_array();
+    cam.0.right = right.to_array();
+    cam.0.down = (-up).to_array();
 }

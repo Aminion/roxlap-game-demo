@@ -1,9 +1,7 @@
-use bytemuck::Zeroable;
 use glam::{DVec3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
-use roxlap_gpu::{
-    camera::Camera as GpuCamera, GpuRenderer, SpriteInstance, SpriteInstanceTransform,
-};
+use roxlap_core::{opticast::OpticastSettings, Camera};
+use roxlap_render::{DynSpriteTransform, FrameParams, SceneRenderer};
 
 use crate::{
     components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::Sprite},
@@ -11,7 +9,7 @@ use crate::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
         performance_info::PerformanceInfo,
     },
-    AutopilotTarget, GpuWorldData, ScreenState,
+    AutopilotTarget, ScreenState, WorldScene,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -20,8 +18,8 @@ use crate::{
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
 pub fn render(
-    #[resource] gpu: &mut GpuRenderer,
-    #[resource] gpu_world: &GpuWorldData,
+    #[resource] renderer: &mut SceneRenderer,
+    #[resource] world_scene: &mut WorldScene,
     #[resource] screen: &ScreenState,
     #[resource] autopilot_target: &AutopilotTarget,
     #[resource] egui_ctx: &egui::Context,
@@ -33,7 +31,7 @@ pub fn render(
     let half = screen_size / 2.0;
     let fov_y_rad = screen.fov_y_rad;
 
-    let core_cam = {
+    let camera: Camera = {
         let mut query = <&CameraComponent>::query();
         query
             .iter(world)
@@ -42,48 +40,43 @@ pub fn render(
             .0
     };
 
-    let world_cam = GpuCamera {
-        fov_y_rad,
-        ..core_cam
-    };
-
-    // Rebuild all asteroid sprite transforms each frame.
+    // Update all sprite instance transforms for this frame.
     {
-        let count = gpu.sprite_instance_count();
-        if count > 0 {
-            let mut transforms: Vec<SpriteInstance> = vec![
-                SpriteInstance {
-                    model_id: 0,
-                    transform: SpriteInstanceTransform::zeroed(),
-                };
-                count
-            ];
-
-            let mut q = <(&Sprite, &NewtonBody)>::query();
-            for (sprite, b) in q.iter(world) {
-                let slot = sprite.slot as usize;
-                if slot < count {
-                    transforms[slot] = sprite_from_body(sprite.chain_id, b);
-                }
-            }
-
-            gpu.update_sprite_instance_transforms(&transforms);
+        let mut updates: Vec<(roxlap_render::SpriteInstanceId, DynSpriteTransform)> = Vec::new();
+        let mut q = <(&Sprite, &NewtonBody)>::query();
+        for (sprite, body) in q.iter(world) {
+            updates.push((sprite.instance_id, sprite_from_body(body)));
         }
+        renderer.set_sprite_instance_transforms(&updates);
     }
 
-    // Snapshot work time before vsync blocks inside render_scene.
+    // Snapshot work time before vsync blocks inside render.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
-    gpu.render_scene(&gpu_world.scene, &[], &world_cam, fov_y_rad, 128);
+    let settings = OpticastSettings::for_oracle_framebuffer(screen.width, screen.height);
+    let frame = FrameParams {
+        settings: &settings,
+        sky_color: 0,
+        sky: None,
+        fog_color: 0,
+        fog_max_scan_dist: 0,
+        treat_z_max_as_air: false,
+        gpu_mip_scan_dist: 128.0,
+        gpu_max_outer_steps: 128,
+        gpu_fov_y_rad: fov_y_rad,
+        draw_sprites: true,
+        side_shades: [0; 6],
+    };
+    renderer.render(&mut world_scene.0, &camera, &frame);
 
     // Project target_dir into screen space.
-    // fov_y = 2*atan(h/w) → tan(fov_y/2) = h/w → focal_pixels = w/2.
     let target_screen = {
         let td = autopilot_target.0.as_vec3();
-        let f = td.dot(Vec3::from(world_cam.forward));
+        let fwd = Vec3::from_array(camera.forward.map(|v| v as f32));
+        let f = td.dot(fwd);
         if f > 0.01 {
-            let r = td.dot(Vec3::from(world_cam.right));
-            let d = td.dot(Vec3::from(world_cam.down));
+            let r = td.dot(Vec3::from_array(camera.right.map(|v| v as f32)));
+            let d = td.dot(Vec3::from_array(camera.down.map(|v| v as f32)));
             let focal = half.x;
             Some(egui::pos2(half.x + focal * r / f, half.y + focal * d / f))
         } else {
@@ -91,14 +84,14 @@ pub fn render(
         }
     };
 
-    draw_hud(egui_ctx, gpu, screen_size, target_screen, perf, energy);
+    draw_hud(egui_ctx, renderer, screen_size, target_screen, perf, energy);
 
     perf.work_timer = std::time::Instant::now();
 }
 
 fn draw_hud(
     egui_ctx: &egui::Context,
-    gpu: &mut GpuRenderer,
+    renderer: &mut SceneRenderer,
     screen_size: egui::Vec2,
     target_screen: Option<egui::Pos2>,
     perf: &PerformanceInfo,
@@ -183,26 +176,21 @@ fn draw_hud(
     });
 
     let clipped_prims = egui_ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
-    gpu.paint_egui(
+    renderer.paint_egui(
         &clipped_prims,
         &full_output.textures_delta,
         full_output.pixels_per_point,
     );
 }
 
-pub(crate) fn sprite_from_body(chain_id: u32, b: &NewtonBody) -> SpriteInstance {
-    let s = (b.orientation * DVec3::X).as_vec3();
-    let h = (b.orientation * DVec3::Y).as_vec3();
-    let f = (b.orientation * DVec3::Z).as_vec3();
-    let mut transform = SpriteInstanceTransform::zeroed();
-    transform.inv_rot = [
-        [s.x, h.x, f.x, 0.0],
-        [s.y, h.y, f.y, 0.0],
-        [s.z, h.z, f.z, 0.0],
-    ];
-    transform.pos = b.pos.as_vec3().to_array();
-    SpriteInstance {
-        model_id: chain_id,
-        transform,
+fn sprite_from_body(b: &NewtonBody) -> DynSpriteTransform {
+    let right = (b.orientation * DVec3::X).as_vec3();
+    let up = (b.orientation * DVec3::Y).as_vec3();
+    let forward = (b.orientation * DVec3::Z).as_vec3();
+    DynSpriteTransform {
+        pos: b.pos.as_vec3().to_array(),
+        right: right.to_array(),
+        up: up.to_array(),
+        forward: forward.to_array(),
     }
 }

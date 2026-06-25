@@ -1,3 +1,3 @@
-use roxlap_gpu::camera::Camera as GpuCamera;
+use roxlap_core::Camera;
 
-pub struct CameraComponent(pub GpuCamera);
+pub struct CameraComponent(pub Camera);

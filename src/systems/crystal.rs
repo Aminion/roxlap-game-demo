@@ -1,5 +1,5 @@
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
-use roxlap_gpu::GpuRenderer;
+use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{
@@ -8,7 +8,7 @@ use crate::{
     generation::chunks::{world_to_chunk, LOAD_RADIUS},
     systems::{
         energy::{Energy, ENERGY_MAX},
-        sprite::{build_sprite_maps, perform_despawn},
+        sprite::perform_despawn,
     },
     Dt,
 };
@@ -32,7 +32,7 @@ fn compute_regen(current: f64, near_count: usize, dt: f64) -> f64 {
 pub fn crystal(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
-    #[resource] gpu: &mut GpuRenderer,
+    #[resource] renderer: &mut SceneRenderer,
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
 ) {
@@ -67,9 +67,8 @@ pub fn crystal(
         return;
     }
 
-    let mut maps = build_sprite_maps(world);
     for entity in to_despawn {
-        perform_despawn(entity, &mut maps, world, commands, gpu);
+        perform_despawn(entity, world, commands, renderer);
     }
 }
 

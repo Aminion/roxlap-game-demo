@@ -1,7 +1,8 @@
 use glam::{DQuat, DVec3, IVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
-use roxlap_gpu::{GpuRenderer, SpriteModel};
+use roxlap_gpu::SpriteModel;
+use roxlap_render::{SceneRenderer, SpriteModelId};
 
 use crate::{
     components::{
@@ -12,8 +13,8 @@ use crate::{
         projectile::Projectile,
         sprite_id::Sprite,
     },
-    systems::sprite::{build_sprite_maps, perform_despawn},
-    world::{build_crystal_sprite_model, spawn_sprite},
+    systems::sprite::perform_despawn,
+    world::{build_crystal_sprite_model, spawn_sprite, sprite_model_to_kv6},
     Dt, LoadedAsteroids, SpriteData,
 };
 
@@ -39,7 +40,7 @@ pub fn projectile(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
     #[resource] dt: &Dt,
-    #[resource] gpu: &mut GpuRenderer,
+    #[resource] renderer: &mut SceneRenderer,
     #[resource] loaded: &mut LoadedAsteroids,
     #[resource] sprite_data: &mut SpriteData,
 ) {
@@ -78,6 +79,7 @@ pub fn projectile(
         radius: f64,
         mass: f64,
         chain_id: u32,
+        model_id: SpriteModelId,
         initial_voxel_count: u32,
     }
     let mut asteroids: Vec<AstState> = Vec::with_capacity(loaded.0.len());
@@ -109,6 +111,7 @@ pub fn projectile(
             radius: ((aabb.max - aabb.min) * 0.5).max_element(),
             mass: body.mass,
             chain_id: sprite.chain_id,
+            model_id: sprite.model_id,
             initial_voxel_count,
         });
     }
@@ -117,6 +120,7 @@ pub fn projectile(
     struct HitData {
         ast_entity: Entity,
         ast_chain_id: u32,
+        ast_model_id: SpriteModelId,
         ast_pos: DVec3,
         ast_vel: DVec3,
         ast_angular_vel: DVec3,
@@ -155,6 +159,7 @@ pub fn projectile(
                     ast_hits.push(HitData {
                         ast_entity: a.entity,
                         ast_chain_id: a.chain_id,
+                        ast_model_id: a.model_id,
                         ast_pos: a.pos,
                         ast_vel: a.vel,
                         ast_angular_vel: a.angular_vel,
@@ -176,13 +181,9 @@ pub fn projectile(
         return;
     }
 
-    // Build a full slot↔entity map from ALL sprite entities so that any
-    // swap-remove (projectile, asteroid, or crystal displaced) is handled correctly.
-    let mut maps = build_sprite_maps(world);
-
     // Despawn expired/hit projectiles.
     for proj_entity in &proj_to_remove {
-        perform_despawn(*proj_entity, &mut maps, world, commands, gpu);
+        perform_despawn(*proj_entity, world, commands, renderer);
     }
 
     // Crystal spawn data collected during hit processing; spawned after all despawns so
@@ -249,11 +250,14 @@ pub fn projectile(
             });
         }
 
-        // Re-upload the edited model to the GPU.
-        gpu.update_sprite_model(&sprite_data.registry, hit.ast_chain_id);
+        // Re-upload the carved model to the renderer.
+        renderer.refresh_sprite_model(
+            hit.ast_model_id,
+            &sprite_model_to_kv6(sprite_data.registry.model(hit.ast_chain_id)),
+        );
 
         if destroy {
-            perform_despawn(hit.ast_entity, &mut maps, world, commands, gpu);
+            perform_despawn(hit.ast_entity, world, commands, renderer);
             loaded.0.remove(&hit.ast_entity);
         } else {
             let (delta_vel, delta_omega) = hit_impulse(
@@ -282,7 +286,11 @@ pub fn projectile(
 
     // All despawns done — safe to append crystals; their slots won't be displaced.
     for c in pending_crystals {
-        let sprite = spawn_sprite(&mut sprite_data.registry, gpu, build_crystal_sprite_model());
+        let sprite = spawn_sprite(
+            renderer,
+            &mut sprite_data.registry,
+            build_crystal_sprite_model(),
+        );
         commands.push((
             CrystalMarker,
             NewtonBody {

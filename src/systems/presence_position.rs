@@ -1,7 +1,7 @@
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rayon::prelude::*;
-use roxlap_gpu::GpuRenderer;
+use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{
@@ -15,7 +15,7 @@ use crate::{
     generation::chunks::{
         compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, CHUNK_SIZE, LOAD_RADIUS,
     },
-    systems::sprite::{build_sprite_maps, perform_despawn},
+    systems::sprite::perform_despawn,
     world::spawn_sprite,
     ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, SpriteData, VisitedChunks,
     WorldSeed,
@@ -35,7 +35,7 @@ const CHUNK_BATCH_SIZE: usize = 64;
 pub fn presence_position_update(
     #[resource] visited: &mut VisitedChunks,
     #[resource] loaded: &mut LoadedAsteroids,
-    #[resource] gpu: &mut GpuRenderer,
+    #[resource] renderer: &mut SceneRenderer,
     #[resource] sprite_data: &mut SpriteData,
     #[resource] world_seed: &WorldSeed,
     #[resource] pending_compact: &mut PendingCompact,
@@ -58,7 +58,7 @@ pub fn presence_position_update(
     };
 
     if updated_pos {
-        let despawned = update_sprites(ship_pos, visited, loaded, gpu, world, commands);
+        let despawned = update_sprites(ship_pos, visited, loaded, renderer, world, commands);
         enqueue_chunks(ship_pos, visited, queued_chunks, chunk_queue);
         pending_compact.0 += despawned as u32;
     }
@@ -69,7 +69,7 @@ pub fn presence_position_update(
         queued_chunks,
         visited,
         loaded,
-        gpu,
+        renderer,
         sprite_data,
         commands,
         world_seed.0,
@@ -82,7 +82,7 @@ pub fn presence_position_update(
     let should_compact = pending_compact.0 >= COMPACT_DEAD_THRESHOLD;
 
     if should_compact {
-        gpu.compact_sprite_models(&sprite_data.registry);
+        renderer.compact_sprite_models();
         pending_compact.0 = 0;
     }
 }
@@ -113,7 +113,7 @@ fn drain_chunk_queue(
     queued_chunks: &mut QueuedChunks,
     visited: &mut VisitedChunks,
     loaded: &mut LoadedAsteroids,
-    gpu: &mut GpuRenderer,
+    renderer: &mut SceneRenderer,
     sprite_data: &mut SpriteData,
     commands: &mut CommandBuffer,
     world_seed: u64,
@@ -165,7 +165,7 @@ fn drain_chunk_queue(
                 angular_vel,
             } => {
                 visited.0.insert(chunk);
-                let sprite = spawn_sprite(&mut sprite_data.registry, gpu, model);
+                let sprite = spawn_sprite(renderer, &mut sprite_data.registry, model);
                 let initial_count = sprite_data.registry.model(sprite.chain_id).colors.len() as u32;
                 let entity = commands.push((
                     AsteroidMarker,
@@ -193,7 +193,7 @@ fn update_sprites(
     ship_pos: DVec3,
     visited: &mut VisitedChunks,
     loaded: &mut LoadedAsteroids,
-    gpu: &mut GpuRenderer,
+    renderer: &mut SceneRenderer,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) -> usize {
@@ -218,12 +218,9 @@ fn update_sprites(
         return 0;
     }
 
-    // Covers all sprite entities so swap-removes triggered by asteroid despawns
-    // correctly update any displaced entity (including projectiles/crystals).
-    let mut maps = build_sprite_maps(world);
     let despawn_count = to_unload.len();
     for (entity, chunk) in to_unload {
-        perform_despawn(entity, &mut maps, world, commands, gpu);
+        perform_despawn(entity, world, commands, renderer);
         loaded.0.remove(&entity);
         visited.0.remove(&chunk);
     }

@@ -1,13 +1,13 @@
 use std::f32::consts::{PI, TAU};
 
-use bytemuck::Zeroable;
 use glam::{DMat3, DQuat, DVec3, IVec2, UVec3, Vec2};
 use legion::World;
-use rand::{distr::weighted::WeightedIndex, distr::Distribution, rngs::StdRng, RngExt, SeedableRng};
-use roxlap_gpu::{
-    camera::Camera as GpuCamera, GpuRenderer, SpriteInstance, SpriteInstanceTransform, SpriteModel,
-    SpriteModelRegistry,
+use rand::{
+    distr::weighted::WeightedIndex, distr::Distribution, rngs::StdRng, RngExt, SeedableRng,
 };
+use roxlap_core::Camera;
+use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
+use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer};
 
 use crate::components::{
     camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
@@ -29,7 +29,7 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
     let mut pixels = vec![0u8; (W * H * 4) as usize];
     let mut rng = StdRng::seed_from_u64(seed);
     let color_dist = WeightedIndex::new([2, 2, 6]).unwrap(); // 20% red, 20% blue, 60% white
-    let size_dist = WeightedIndex::new([6, 3, 1]).unwrap();  // 60% sz2, 30% sz3, 10% sz4
+    let size_dist = WeightedIndex::new([6, 3, 1]).unwrap(); // 60% sz2, 30% sz3, 10% sz4
 
     for _ in 0..STAR_COUNT {
         // Uniform solid-angle distribution: cos(polar) uniform in [-1, 1].
@@ -89,22 +89,43 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
     (pixels, W, H)
 }
 
-/// Register a sprite model and append one GPU instance for it.
+/// Convert a dense-occupancy `SpriteModel` into a surface-only `Kv6` for the renderer.
+pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
+    let [mx, my, mz] = model.dims;
+    let occ = model.occ_words_per_col as usize;
+    Kv6::from_fn_shaded(mx, my, mz, |x, y, z| {
+        let col = (x + y * mx) as usize;
+        let word_idx = col * occ + z as usize / 32;
+        if (model.occupancy[word_idx] >> (z % 32)) & 1 == 0 {
+            return None;
+        }
+        let col_start = model.color_offsets[col] as usize;
+        let mut z_idx = 0usize;
+        for zi in 0..z {
+            let wi = col * occ + zi as usize / 32;
+            if (model.occupancy[wi] >> (zi % 32)) & 1 == 1 {
+                z_idx += 1;
+            }
+        }
+        Some(model.colors[col_start + z_idx])
+    })
+}
+
+/// Register a sprite model with both the CPU registry and the renderer.
 pub fn spawn_sprite(
+    renderer: &mut SceneRenderer,
     registry: &mut SpriteModelRegistry,
-    gpu: &mut GpuRenderer,
     model: SpriteModel,
 ) -> Sprite {
     let chain_id = registry.add(model);
-    gpu.add_sprite_model(registry, chain_id);
-    let slot = gpu.append_sprite_instances(
-        registry,
-        &[SpriteInstance {
-            model_id: chain_id,
-            transform: SpriteInstanceTransform::zeroed(),
-        }],
-    );
-    Sprite { slot, chain_id }
+    let kv6 = sprite_model_to_kv6(registry.model(chain_id));
+    let model_id = renderer.add_sprite_model(&kv6);
+    let instance_id = renderer.add_sprite_instance_posed(model_id, DynSpriteTransform::default());
+    Sprite {
+        chain_id,
+        model_id,
+        instance_id,
+    }
 }
 
 /// 7-voxel cross crystal: one centre voxel plus one on each of the six faces.
@@ -210,12 +231,11 @@ fn spawn_miner(world: &mut World) {
             orientation,
             angular_vel: DVec3::ZERO,
         },
-        CameraComponent(GpuCamera {
-            position: [0.0; 3],
+        CameraComponent(Camera {
+            pos: [0.0; 3],
             forward: [0.0, 0.0, -1.0],
             right: [1.0, 0.0, 0.0],
             down: [0.0, 1.0, 0.0],
-            fov_y_rad: 0.0,
         }),
         // mass=1.0 kg, radius=1.0 m, rot=0.6 N → 3.0 rad/s² max; lin=5.0 N → 5.0 m/s² max
         ThrusterBank::new(1.0, 1.0, 0.6, 5.0),

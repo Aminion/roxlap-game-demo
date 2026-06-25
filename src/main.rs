@@ -17,9 +17,8 @@ use raw_window_handle::{
     DisplayHandle, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     WindowHandle,
 };
-use roxlap_gpu::{
-    GpuRenderer, GpuRendererSettings, GpuSceneResident, SceneUpload, SpriteModelRegistry,
-};
+use roxlap_gpu::SpriteModelRegistry;
+use roxlap_render::{GpuRendererSettings, RenderOptions, SceneRenderer, SpriteSet};
 use sdl2::{
     event::{Event, WindowEvent},
     keyboard::Scancode,
@@ -73,10 +72,8 @@ pub struct FrameTimer(pub Instant);
 
 // --- GPU resources ---
 
-/// GPU-resident voxel scene (base world grid).
-pub struct GpuWorldData {
-    pub scene: GpuSceneResident,
-}
+/// Scene container for the voxel world (passed to the renderer each frame).
+pub struct WorldScene(pub roxlap_scene::Scene);
 
 /// CPU-side sprite model registry, kept alive so future edits (destruction)
 /// can call `gpu.update_sprite_model(&sprite_data.registry, chain_id)`.
@@ -163,21 +160,22 @@ fn initialize() -> Result<(Window, EventPump), String> {
 fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let mut resources = Resources::default();
 
-    let mut gpu = GpuRenderer::new_blocking(
+    let mut renderer = SceneRenderer::new(
         handle,
         (INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
-        GpuRendererSettings {
-            uncapped_present: false,
-            ..GpuRendererSettings::default()
+        &RenderOptions {
+            want_gpu: true,
+            gpu: GpuRendererSettings {
+                uncapped_present: false,
+                ..GpuRendererSettings::default()
+            },
+            ..RenderOptions::default()
         },
-    )
-    .expect("GPU init failed — no Vulkan/Metal/DX12 adapter?");
+    );
     let (sky_pixels, sky_w, sky_h) = generate_star_sky(WORLD_SEED);
-    gpu.set_sky_panorama(&sky_pixels, sky_w, sky_h);
+    renderer.set_sky_panorama(&sky_pixels, sky_w, sky_h);
 
-    let gpu_world = GpuWorldData {
-        scene: GpuSceneResident::upload(gpu.device(), &SceneUpload { grids: vec![] }),
-    };
+    let world_scene = WorldScene(roxlap_scene::Scene::new());
 
     let sprite_registry = SpriteModelRegistry::new();
 
@@ -215,8 +213,8 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     });
     resources.insert(egui_ctx);
     resources.insert(PerformanceInfo::new());
-    resources.insert(gpu);
-    resources.insert(gpu_world);
+    resources.insert(renderer);
+    resources.insert(world_scene);
     resources.insert(SpriteData {
         registry: sprite_registry,
     });
@@ -260,14 +258,15 @@ fn fov_y(w: u32, h: u32) -> f32 {
 }
 
 fn restart_world(world: &mut World, resources: &mut Resources) {
-    // Drop the GPU-resident sprite registry entirely so chain_ids in the new
-    // registry start from 0 and match what the fresh CPU SpriteModelRegistry
-    // will assign. compact_sprite_models would preserve the old tombstoned
-    // chain entries, causing new chain_id=0 instances to index a dead chain
-    // and be silently skipped by cull_bin_upload.
+    // Reset the renderer sprite registry so model/instance handles restart from
+    // a clean slate, matching the fresh CPU SpriteModelRegistry chain_ids.
     {
-        let mut gpu = resources.get_mut::<GpuRenderer>().unwrap();
-        gpu.set_sprite_instances(&SpriteModelRegistry::new(), &[]);
+        let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
+        let _ = renderer.set_sprites(&SpriteSet {
+            models: vec![],
+            instances: vec![],
+            carve_model: None,
+        });
     }
 
     // Reset CPU sprite registry so chain_ids restart from 0.
@@ -397,7 +396,7 @@ fn main() {
                         ss.fov_y_rad = fov_y(new_w, new_h);
                     }
                     resources
-                        .get_mut::<GpuRenderer>()
+                        .get_mut::<SceneRenderer>()
                         .unwrap()
                         .resize(new_w, new_h);
                 }
