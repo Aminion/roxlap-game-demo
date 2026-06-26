@@ -1,4 +1,4 @@
-use glam::DVec3;
+use glam::{DMat3, DVec3};
 use legion::{system, world::SubWorld, *};
 
 use roxlap_gpu::SpriteModelRegistry;
@@ -20,19 +20,16 @@ pub fn aabb_update(world: &mut SubWorld, #[resource] registry: &SpriteModelRegis
         let local_min = -pivot * vws;
         let local_max = (dims - pivot) * vws;
 
-        // OBB→AABB: transform all 8 corners through orientation, take per-axis min/max.
-        let mut world_min = DVec3::splat(f64::INFINITY);
-        let mut world_max = DVec3::splat(f64::NEG_INFINITY);
-        for sx in [local_min.x, local_max.x] {
-            for sy in [local_min.y, local_max.y] {
-                for sz in [local_min.z, local_max.z] {
-                    let corner = body.pos + body.orientation * DVec3::new(sx, sy, sz);
-                    world_min = world_min.min(corner);
-                    world_max = world_max.max(corner);
-                }
-            }
-        }
-        aabb.min = world_min;
-        aabb.max = world_max;
+        // OBB→AABB: project half-extents through |R| to get world half-extents.
+        let mat = DMat3::from_quat(body.orientation);
+        let half = (local_max - local_min) * 0.5;
+        let center = body.pos + body.orientation * ((local_min + local_max) * 0.5);
+        let world_half = DVec3::new(
+            mat.col(0).abs().dot(half),
+            mat.col(1).abs().dot(half),
+            mat.col(2).abs().dot(half),
+        );
+        aabb.min = center - world_half;
+        aabb.max = center + world_half;
     }
 }
