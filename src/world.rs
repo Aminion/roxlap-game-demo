@@ -13,13 +13,9 @@ use crate::sprites::{build_crystal, build_particle, build_projectile};
 use roxlap_render::{DynSpriteTransform, Kv6, Material, SceneRenderer, SpriteModelId};
 
 use crate::components::{
-    camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
+    aabb::Aabb, camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
     presence_position::PresencePosition, sprite_id::Sprite, thruster::ThrusterBank,
 };
-
-/// Sentinel chain_id for the miner sprite — miner has no Aabb, so aabb_update
-/// never calls registry.model(chain_id) on this value.
-const MINER_CHAIN_ID_SENTINEL: u32 = u32::MAX;
 
 /// Generate a 1024×512 equirectangular star panorama as RGBA bytes.
 ///
@@ -96,6 +92,48 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
     (pixels, W, H)
 }
 
+/// Convert a `Kv6` into a dense-occupancy `SpriteModel` for the CPU registry.
+fn kv6_to_sprite_model(kv6: &kv6_fmt::Kv6) -> SpriteModel {
+    let [mx, my, mz] = [kv6.xsiz, kv6.ysiz, kv6.zsiz];
+    let occ_words = mz.div_ceil(32).max(1) as usize;
+    let cols = (mx * my) as usize;
+
+    let mut occupancy = vec![0u32; cols * occ_words];
+    let mut color_offsets = vec![0u32; cols + 1];
+    let mut colors: Vec<u32> = Vec::new();
+    let mut dirs: Vec<u32> = Vec::new();
+
+    let mut vi = 0usize;
+    for x in 0..mx as usize {
+        for y in 0..my as usize {
+            let col = x + y * mx as usize;
+            color_offsets[col] = colors.len() as u32;
+            let count = kv6.ylen[x][y] as usize;
+            for _ in 0..count {
+                let v = &kv6.voxels[vi];
+                vi += 1;
+                let z = v.z as usize;
+                occupancy[col * occ_words + z / 32] |= 1u32 << (z % 32);
+                colors.push(v.col);
+                dirs.push(v.dir as u32);
+            }
+        }
+    }
+    color_offsets[cols] = colors.len() as u32;
+
+    SpriteModel {
+        dims: [mx, my, mz],
+        occ_words_per_col: mz.div_ceil(32).max(1),
+        pivot: [kv6.xpiv, kv6.ypiv, kv6.zpiv],
+        occupancy,
+        colors,
+        dirs,
+        color_offsets,
+        materials: Vec::new(),
+        voxel_world_size: 1.0,
+    }
+}
+
 /// Convert a dense-occupancy `SpriteModel` into a surface-only `Kv6` for the renderer.
 pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
     let [mx, my, mz] = model.dims;
@@ -136,9 +174,13 @@ pub struct ParticleModel {
 
 pub struct MinerModel {
     pub model_id: SpriteModelId,
+    pub chain_id: u32,
 }
 
-pub fn register_miner_model(renderer: &mut SceneRenderer) -> MinerModel {
+pub fn register_miner_model(
+    renderer: &mut SceneRenderer,
+    registry: &mut SpriteModelRegistry,
+) -> MinerModel {
     static KV6_BYTES: &[u8] = include_bytes!("../model.kv6");
     let mut kv6 = kv6_fmt::parse(KV6_BYTES).expect("model.kv6 parse failed");
     // The file's pivot is at the +++ corner (9,9,9); set it to the geometric
@@ -147,7 +189,8 @@ pub fn register_miner_model(renderer: &mut SceneRenderer) -> MinerModel {
     kv6.ypiv = kv6.ysiz as f32 * 0.5;
     kv6.zpiv = kv6.zsiz as f32 * 0.5;
     let model_id = renderer.add_sprite_model(&kv6);
-    MinerModel { model_id }
+    let chain_id = registry.add(kv6_to_sprite_model(&kv6));
+    MinerModel { model_id, chain_id }
 }
 
 /// Register shared models for projectiles, crystals, and debris particles.
@@ -219,12 +262,8 @@ pub fn spawn_sprite(
     }
 }
 
-pub fn populate_world(
-    world: &mut World,
-    renderer: &mut SceneRenderer,
-    miner_model_id: SpriteModelId,
-) {
-    spawn_miner(world, renderer, miner_model_id);
+pub fn populate_world(world: &mut World, renderer: &mut SceneRenderer, miner_model: &MinerModel) {
+    spawn_miner(world, renderer, miner_model);
 }
 
 const MINER_PITCH: f64 = 0.8;
@@ -245,11 +284,11 @@ pub fn miner_initial_forward() -> DVec3 {
     miner_orientation() * DVec3::NEG_Z
 }
 
-fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model_id: SpriteModelId) {
+fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model: &MinerModel) {
     let orientation = miner_orientation();
     let pos = DVec3::new(-MINER_SPAWN_OFFSET_X, 0.0, -MINER_SPAWN_HEIGHT);
     let instance_id =
-        renderer.add_sprite_instance_posed(miner_model_id, DynSpriteTransform::default());
+        renderer.add_sprite_instance_posed(miner_model.model_id, DynSpriteTransform::default());
     // CameraComponent is overwritten by camera_update_system before the first render,
     // so the initial values are placeholders.
     world.push((
@@ -276,10 +315,11 @@ fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model_id: 
             cooldown: 0.0,
         },
         Sprite {
-            chain_id: MINER_CHAIN_ID_SENTINEL,
-            model_id: miner_model_id,
+            chain_id: miner_model.chain_id,
+            model_id: miner_model.model_id,
             instance_id,
             owns_model: false,
         },
+        Aabb::empty(),
     ));
 }

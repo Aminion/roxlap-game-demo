@@ -176,7 +176,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let mut sprite_registry = SpriteModelRegistry::new();
     let (projectile_model, crystal_model, particle_model) =
         register_shared_sprites(&mut renderer, &mut sprite_registry);
-    let miner_model = register_miner_model(&mut renderer);
+    let miner_model = register_miner_model(&mut renderer, &mut sprite_registry);
 
     resources.insert(ScreenState {
         width: INITIAL_WINDOW_WIDTH,
@@ -285,16 +285,17 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
 
     let miner_model = {
         let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
-        register_miner_model(&mut renderer)
+        let mut registry = resources.get_mut::<SpriteModelRegistry>().unwrap();
+        register_miner_model(&mut renderer, &mut registry)
     };
     *resources.get_mut::<MinerModel>().unwrap() = miner_model;
 
     // Rebuild ECS world with a fresh miner.
     *world = World::default();
     {
-        let miner_model_id = resources.get::<MinerModel>().unwrap().model_id;
+        let miner_model = resources.get::<MinerModel>().unwrap();
         let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
-        populate_world(world, &mut renderer, miner_model_id);
+        populate_world(world, &mut renderer, &miner_model);
     }
 
     // Reset all runtime resources.
@@ -325,9 +326,9 @@ fn main() {
     let mut resources = initial_resources(handle);
 
     {
-        let miner_model_id = resources.get::<MinerModel>().unwrap().model_id;
+        let miner_model = resources.get::<MinerModel>().unwrap();
         let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
-        populate_world(&mut world, &mut renderer, miner_model_id);
+        populate_world(&mut world, &mut renderer, &miner_model);
     }
 
     'running: loop {

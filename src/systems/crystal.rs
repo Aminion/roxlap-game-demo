@@ -3,7 +3,8 @@ use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{
-        crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody, sprite_id::Sprite,
+        aabb::Aabb, crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody,
+        sprite_id::Sprite,
     },
     generation::chunks::{world_to_chunk, LOAD_RADIUS},
     systems::{
@@ -13,7 +14,6 @@ use crate::{
     Dt,
 };
 
-const CRYSTAL_PICKUP_RADIUS_SQ: f64 = 3.0 * 3.0;
 const CRYSTAL_REGEN_DIST_SQ: f64 = 8.0 * 8.0;
 pub const CRYSTAL_REGEN_RATE: f64 = 25.0;
 
@@ -28,6 +28,7 @@ fn compute_regen(current: f64, near_count: usize, dt: f64) -> f64 {
 #[read_component(Miner)]
 #[read_component(CrystalMarker)]
 #[read_component(NewtonBody)]
+#[read_component(Aabb)]
 #[write_component(Sprite)]
 pub fn crystal(
     world: &mut SubWorld,
@@ -36,10 +37,10 @@ pub fn crystal(
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
 ) {
-    let (ship_pos, ship_chunk) = {
-        let mut q = <(&Miner, &NewtonBody)>::query();
-        let (_, body) = q.iter(world).next().expect("miner missing");
-        (body.pos, world_to_chunk(body.pos))
+    let (ship_pos, ship_chunk, ship_aabb) = {
+        let mut q = <(&Miner, &NewtonBody, &Aabb)>::query();
+        let (_, body, aabb) = q.iter(world).next().expect("miner missing");
+        (body.pos, world_to_chunk(body.pos), aabb.clone())
     };
 
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
@@ -47,15 +48,14 @@ pub fn crystal(
     let mut to_despawn: Vec<Entity> = Vec::new();
     let mut near_count = 0usize;
     {
-        let mut q = <(Entity, &CrystalMarker, &NewtonBody)>::query();
-        for (entity, _, body) in q.iter(world) {
-            let dist_sq = (body.pos - ship_pos).length_squared();
-            let picked_up = dist_sq <= CRYSTAL_PICKUP_RADIUS_SQ;
+        let mut q = <(Entity, &CrystalMarker, &NewtonBody, &Aabb)>::query();
+        for (entity, _, body, crystal_aabb) in q.iter(world) {
+            let picked_up = ship_aabb.overlaps(crystal_aabb);
             let dc = world_to_chunk(body.pos) - ship_chunk;
             let out_of_range = dc.dot(dc) > r2;
             if picked_up || out_of_range {
                 to_despawn.push(*entity);
-            } else if dist_sq <= CRYSTAL_REGEN_DIST_SQ {
+            } else if (body.pos - ship_pos).length_squared() <= CRYSTAL_REGEN_DIST_SQ {
                 near_count += 1;
             }
         }

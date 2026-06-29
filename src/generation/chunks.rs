@@ -289,7 +289,7 @@ mod tests {
             ] {
                 let v = chunk_spawn_angular_vel(chunk_hash_base(seed, chunk));
                 assert!(
-                    v.x.abs() <= 1.0 && v.y.abs() <= 1.0 && v.z.abs() <= 1.0,
+                    v.abs().cmple(DVec3::ONE).all(),
                     "angular_vel {v} out of [-1,1] for chunk {chunk} seed {seed}"
                 );
             }
@@ -308,9 +308,7 @@ mod tests {
             ] {
                 let o = chunk_spawn_offset(chunk_hash_base(seed, chunk));
                 assert!(
-                    o.x.abs() <= SPAWN_SAFE_RANGE
-                        && o.y.abs() <= SPAWN_SAFE_RANGE
-                        && o.z.abs() <= SPAWN_SAFE_RANGE,
+                    o.abs().cmple(DVec3::splat(SPAWN_SAFE_RANGE)).all(),
                     "offset {o} exceeds safe range for chunk {chunk} seed {seed}"
                 );
             }

@@ -72,7 +72,7 @@ pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: D
     if error.length() < EPSILON {
         return;
     }
-    bank.command += body.orientation.inverse() * (error / error.length() * max_a);
+    bank.command += body.orientation.inverse() * (error.normalize() * max_a);
 }
 
 #[system]

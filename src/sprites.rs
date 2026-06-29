@@ -320,7 +320,7 @@ mod tests {
         let (_, minerals) = asteroid(true);
         for &m in &minerals {
             assert!(
-                m.x < vsid && m.y < vsid && m.z < vsid,
+                m.cmplt(UVec3::splat(vsid)).all(),
                 "mineral {m} is out of model bounds"
             );
         }
