@@ -147,6 +147,7 @@ pub fn build_asteroid(
         colors,
         dirs,
         color_offsets,
+        materials: Vec::new(),
         voxel_world_size: 1.0,
     };
 
@@ -205,6 +206,7 @@ pub fn build_crystal() -> SpriteModel {
         colors,
         dirs,
         color_offsets,
+        materials: Vec::new(),
         voxel_world_size: 1.0,
     }
 }
@@ -230,6 +232,7 @@ pub fn build_particle() -> SpriteModel {
         color_offsets: (0..=cols).map(|i| (i * DIM as usize) as u32).collect(),
         colors: (0..cols).flat_map(|_| z_colors).collect(),
         dirs: vec![0u32; cols * DIM as usize],
+        materials: Vec::new(),
         voxel_world_size: 1.0,
     }
 }
@@ -245,6 +248,7 @@ pub fn build_projectile() -> SpriteModel {
         color_offsets: vec![0u32, 1u32],
         colors: vec![0x80_FF_00_FF],
         dirs: vec![0u32],
+        materials: Vec::new(),
         voxel_world_size: 1.0,
     }
 }

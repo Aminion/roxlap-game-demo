@@ -431,6 +431,7 @@ mod tests {
             colors: vec![0xFF_FF_FF_FF],
             dirs: vec![0],
             color_offsets: vec![0, 0, 0, 1],
+            materials: Vec::new(),
             voxel_world_size: 1.0,
         }
     }
@@ -550,6 +551,7 @@ mod tests {
             colors: vec![0xFF_FF_FF_FF; total],
             dirs: vec![0; total],
             color_offsets,
+            materials: Vec::new(),
             voxel_world_size: 1.0,
         }
     }

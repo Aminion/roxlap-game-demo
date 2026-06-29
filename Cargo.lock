@@ -12,6 +12,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "adler2"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -629,9 +635,9 @@ dependencies = [
 
 [[package]]
 name = "glam"
-version = "0.33.1"
+version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "898f5a568a84989b6c0f8caa50a93074b97dbdc58fc6d9543157bb4562758933"
+checksum = "7f22fb22f065b308be0d8724e3706c7fa3fc2a6c7d6899df4cad7860e7a75436"
 
 [[package]]
 name = "glow"
@@ -945,6 +951,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1219ed1b7f229ee7104d281dd01d6802fe28bb6e95d292942c4daacdeb798c0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "miniz_oxide"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
+dependencies = [
+ "adler2",
 ]
 
 [[package]]
@@ -1480,18 +1495,18 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "roxlap-cavegen"
-version = "0.14.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5689f716b93b0713211e7a44dbd4ee0013f88edd9a2ddb82af4cefb311c0969c"
+checksum = "ce733a09e0a610d89d3f604d58d3f17ab548ef04aab1bafada2b00a3d903becb"
 dependencies = [
  "roxlap-formats",
 ]
 
 [[package]]
 name = "roxlap-core"
-version = "0.14.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99c472fee082e4b7b611812f8cb8f14c8a6f9d9a28c45fd6cb51fa8a50ea9ce7"
+checksum = "e937c8dd5e2cff623db7fde15db794e6be1f49ff5b7766d288ef84d6c74e6ec5"
 dependencies = [
  "rayon",
  "roxlap-formats",
@@ -1499,9 +1514,12 @@ dependencies = [
 
 [[package]]
 name = "roxlap-formats"
-version = "0.14.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dba8974bbac94c5eb10c54612f58cd25c84fb1d6ca72ca8ca9b586f94d068a9c"
+checksum = "17e028a71fc145f607b83ba958317657e6cdf7134190e2183e3eaf79d08c35fa"
+dependencies = [
+ "miniz_oxide",
+]
 
 [[package]]
 name = "roxlap-game-demo"
@@ -1509,7 +1527,7 @@ version = "0.1.0"
 dependencies = [
  "crossbeam",
  "egui",
- "glam 0.33.1",
+ "glam 0.33.2",
  "legion",
  "log",
  "proptest",
@@ -1527,9 +1545,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-gpu"
-version = "0.14.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c89812044e3e4fbe36b3e3eea4e3478f82660ec9b62dc298c9c4b36e4d0d0e5d"
+checksum = "f53906417781109715ec3a8e2a39a72ca67a26ecee3c36b2e80170e9878012fc"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1544,9 +1562,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-render"
-version = "0.14.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c46edc51c7b96c901402b7bf03db8d746eedd6849bec6a83e2cfb6b726bc88dd"
+checksum = "c55b709207a8ce1d89f7e7fc8391bb548978dde5052ccce1f120d3be3e93cc57"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1564,9 +1582,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-scene"
-version = "0.14.0"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "707412649aa4db53d7373f7fd076ae476292a73e6f95b8f1b464eddd70c3743c"
+checksum = "446dd106a3a7a2a956738b094a116a4ba8f47c8faf4a8e70d67f15fe633fc343"
 dependencies = [
  "crossbeam-channel",
  "glam 0.30.10",
