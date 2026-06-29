@@ -139,7 +139,7 @@ pub fn register_shared_sprites(
     let proj_kv6 = sprite_model_to_kv6(registry.model(proj_chain_id));
     let proj_model_id = renderer.add_sprite_model(&proj_kv6);
 
-    renderer.define_material(1, Material::additive(160));
+    renderer.define_material(1, Material::alpha_blend(160));
     let crystal_chain_id = registry.add(build_crystal());
     let crystal_kv6 = sprite_model_to_kv6(registry.model(crystal_chain_id));
     let crystal_model_id =
