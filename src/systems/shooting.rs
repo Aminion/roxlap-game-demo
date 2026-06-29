@@ -17,7 +17,6 @@ const PROJECTILE_SPEED: f64 = 300.0;
 const PROJECTILE_MASS: f64 = 0.001;
 const PROJECTILE_LIFETIME: f64 = 6.0;
 const CANNON_COOLDOWN: f64 = 0.2;
-const PROJECTILE_SPAWN_OFFSET: f64 = 3.0;
 const AIM_FALLBACK_DIST: f64 = 500.0;
 
 #[system]
@@ -71,7 +70,7 @@ pub fn shooting(
     };
 
     // Phase 3: compute shoot direction, apply recoil, spawn projectile.
-    let spawn_pos = miner_pos + forward * PROJECTILE_SPAWN_OFFSET;
+    let spawn_pos = miner_pos;
     let shoot_dir = (aim_point - spawn_pos).try_normalize().unwrap_or(forward);
     let spawn_vel = miner_vel + shoot_dir * PROJECTILE_SPEED;
 
