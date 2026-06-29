@@ -3,7 +3,10 @@ use legion::{system, systems::CommandBuffer, world::SubWorld, *};
 use roxlap_render::SceneRenderer;
 
 use crate::{
-    components::particle::{Particle, ParticleGroup},
+    components::{
+        particle::{Particle, ParticleGroup},
+        sprite_id::Sprite,
+    },
     systems::sprite::perform_despawn,
     Dt,
 };
@@ -17,6 +20,7 @@ const DESPAWN_THRESHOLD: f32 = 0.005;
 #[system]
 #[write_component(ParticleGroup)]
 #[write_component(Particle)]
+#[read_component(Sprite)]
 pub fn particle(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
@@ -41,8 +45,13 @@ pub fn particle(
     }
     for (member, scale) in scale_updates {
         if let Ok(mut entry) = world.entry_mut(member) {
+            let instance_id = entry.get_component::<Sprite>().ok().map(|s| s.instance_id);
             if let Ok(p) = entry.get_component_mut::<Particle>() {
                 p.scale = scale;
+            }
+            if let Some(id) = instance_id {
+                let alpha = (scale.max_element() * 255.0) as u8;
+                renderer.set_sprite_instance_alpha(id, alpha);
             }
         }
     }

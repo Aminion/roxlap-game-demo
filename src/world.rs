@@ -9,7 +9,7 @@ use roxlap_core::Camera;
 use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
 
 use crate::sprites::{build_crystal, build_particle, build_projectile};
-use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer, SpriteModelId};
+use roxlap_render::{DynSpriteTransform, Kv6, Material, SceneRenderer, SpriteModelId};
 
 use crate::components::{
     camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
@@ -97,19 +97,20 @@ pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
     let occ = model.occ_words_per_col as usize;
     Kv6::from_fn_shaded(mx, my, mz, |x, y, z| {
         let col = (x + y * mx) as usize;
-        let word_idx = col * occ + z as usize / 32;
-        if (model.occupancy[word_idx] >> (z % 32)) & 1 == 0 {
+        let base = col * occ;
+        let z_word = z as usize / 32;
+        let z_bit = z % 32;
+        if (model.occupancy[base + z_word] >> z_bit) & 1 == 0 {
             return None;
         }
         let col_start = model.color_offsets[col] as usize;
-        let mut z_idx = 0usize;
-        for zi in 0..z {
-            let wi = col * occ + zi as usize / 32;
-            if (model.occupancy[wi] >> (zi % 32)) & 1 == 1 {
-                z_idx += 1;
-            }
+        let mut rank = 0usize;
+        for w in 0..z_word {
+            rank += model.occupancy[base + w].count_ones() as usize;
         }
-        Some(model.colors[col_start + z_idx])
+        let below_mask = (1u32 << z_bit) - 1;
+        rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
+        Some(model.colors[col_start + rank])
     })
 }
 
@@ -138,9 +139,11 @@ pub fn register_shared_sprites(
     let proj_kv6 = sprite_model_to_kv6(registry.model(proj_chain_id));
     let proj_model_id = renderer.add_sprite_model(&proj_kv6);
 
+    renderer.define_material(1, Material::additive(160));
     let crystal_chain_id = registry.add(build_crystal());
     let crystal_kv6 = sprite_model_to_kv6(registry.model(crystal_chain_id));
-    let crystal_model_id = renderer.add_sprite_model(&crystal_kv6);
+    let crystal_model_id =
+        renderer.add_sprite_model_with_materials(&crystal_kv6, &[(0xFF_30_30, 1)]);
 
     let particle_chain_id = registry.add(build_particle());
     let particle_kv6 = sprite_model_to_kv6(registry.model(particle_chain_id));
