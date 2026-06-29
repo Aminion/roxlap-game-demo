@@ -48,8 +48,8 @@ use crate::systems::{
     thruster::thruster_system,
 };
 use crate::world::{
-    generate_star_sky, miner_initial_forward, populate_world, register_shared_sprites,
-    CrystalModel, ParticleModel, ProjectileModel,
+    generate_star_sky, miner_initial_forward, populate_world, register_miner_model,
+    register_shared_sprites, CrystalModel, MinerModel, ParticleModel, ProjectileModel,
 };
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
@@ -176,6 +176,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let mut sprite_registry = SpriteModelRegistry::new();
     let (projectile_model, crystal_model, particle_model) =
         register_shared_sprites(&mut renderer, &mut sprite_registry);
+    let miner_model = register_miner_model(&mut renderer);
 
     resources.insert(ScreenState {
         width: INITIAL_WINDOW_WIDTH,
@@ -217,6 +218,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(projectile_model);
     resources.insert(crystal_model);
     resources.insert(particle_model);
+    resources.insert(miner_model);
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
@@ -233,11 +235,11 @@ fn build_schedule() -> Schedule {
     Schedule::builder()
         .add_system(update_info_system())
         .add_system(miner_input_system())
-        .add_system(camera_update_system())
         .add_system(autopilot_system())
         .add_system(thruster_system())
         .add_system(retrieval_system())
         .add_system(newton_body_system())
+        .add_system(camera_update_system())
         .add_system(presence_position_update_system())
         // Flush so newly-spawned asteroid entities are visible to subsequent systems.
         .flush()
@@ -281,9 +283,19 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     *resources.get_mut::<CrystalModel>().unwrap() = crystal;
     *resources.get_mut::<ParticleModel>().unwrap() = particle;
 
+    let miner_model = {
+        let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
+        register_miner_model(&mut renderer)
+    };
+    *resources.get_mut::<MinerModel>().unwrap() = miner_model;
+
     // Rebuild ECS world with a fresh miner.
     *world = World::default();
-    populate_world(world);
+    {
+        let miner_model_id = resources.get::<MinerModel>().unwrap().model_id;
+        let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
+        populate_world(world, &mut renderer, miner_model_id);
+    }
 
     // Reset all runtime resources.
     resources.get_mut::<Energy>().unwrap().current = ENERGY_MAX;
@@ -312,7 +324,11 @@ fn main() {
     let _window = window;
     let mut resources = initial_resources(handle);
 
-    populate_world(&mut world);
+    {
+        let miner_model_id = resources.get::<MinerModel>().unwrap().model_id;
+        let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
+        populate_world(&mut world, &mut renderer, miner_model_id);
+    }
 
     'running: loop {
         {

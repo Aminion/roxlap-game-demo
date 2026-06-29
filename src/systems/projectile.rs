@@ -21,7 +21,7 @@ use crate::{
 };
 
 /// Voxel radius of the crater carved on each hit.
-const HIT_CARVE_RADIUS: u32 = 4;
+const HIT_CARVE_RADIUS: u32 = 8;
 
 /// Scales raw projectile momentum (mass × speed) into effective impulse.
 /// Keeps the direction physics-correct while tuning the magnitude for
