@@ -9,7 +9,6 @@ use crate::{
     },
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
-        particle::{PARTICLE_LIFETIME, PARTICLE_MODEL_DIM},
         performance_info::PerformanceInfo,
     },
     AutopilotTarget, ScreenState,
@@ -49,12 +48,7 @@ pub fn render(
         let mut updates: Vec<(roxlap_render::SpriteInstanceId, DynSpriteTransform)> = Vec::new();
         let mut q = <(&Sprite, &NewtonBody, Option<&Particle>)>::query();
         for (sprite, body, particle) in q.iter(world) {
-            let scale = particle
-                .map(|p| {
-                    ((p.lifetime / PARTICLE_LIFETIME) as f32 * p.base_scale / PARTICLE_MODEL_DIM)
-                        .max(0.01)
-                })
-                .unwrap_or(1.0);
+            let scale = particle.map(|p| p.scale).unwrap_or(Vec3::ONE);
             updates.push((sprite.instance_id, sprite_from_body(body, scale)));
         }
         renderer.set_sprite_instance_transforms(&updates);
@@ -193,12 +187,12 @@ fn draw_hud(
     );
 }
 
-fn sprite_from_body(b: &NewtonBody, scale: f32) -> DynSpriteTransform {
-    let rot = DMat3::from_quat(b.orientation) * scale as f64;
+fn sprite_from_body(b: &NewtonBody, scale: Vec3) -> DynSpriteTransform {
+    let rot = DMat3::from_quat(b.orientation);
     DynSpriteTransform {
         pos: b.pos.as_vec3().to_array(),
-        right: rot.x_axis.as_vec3().to_array(),
-        up: rot.y_axis.as_vec3().to_array(),
-        forward: rot.z_axis.as_vec3().to_array(),
+        right: (rot.x_axis * scale.x as f64).as_vec3().to_array(),
+        up: (rot.y_axis * scale.y as f64).as_vec3().to_array(),
+        forward: (rot.z_axis * scale.z as f64).as_vec3().to_array(),
     }
 }

@@ -11,11 +11,11 @@ use crate::{
         asteroid::{AsteroidMinerals, AsteroidVoxelInfo},
         crystal::CrystalMarker,
         newton_body::NewtonBody,
-        particle::Particle,
+        particle::{Particle, ParticleGroup},
         projectile::Projectile,
         sprite_id::Sprite,
     },
-    systems::{particle::PARTICLE_LIFETIME, sprite::perform_despawn},
+    systems::{particle::PARTICLE_MODEL_DIM, sprite::perform_despawn},
     world::{spawn_shared_instance, sprite_model_to_kv6, CrystalModel, ParticleModel},
     Dt, LoadedAsteroids,
 };
@@ -249,7 +249,8 @@ pub fn projectile(
             ));
         }
 
-        // Spawn one debris particle per carved voxel.
+        // Spawn one debris particle per carved voxel; group them for batch despawn.
+        let mut particle_members: Vec<Entity> = Vec::with_capacity(removed_voxels.len());
         for voxel in &removed_voxels {
             let local_offset = voxel.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let world_pos = hit.ast_pos + hit.ast_orientation * local_offset;
@@ -262,10 +263,9 @@ pub fn projectile(
             let speed = rng.random_range(0.1f64..40.0);
             let sprite =
                 spawn_shared_instance(renderer, particle_model.model_id, particle_model.chain_id);
-            commands.push((
+            let entity = commands.push((
                 Particle {
-                    lifetime: PARTICLE_LIFETIME,
-                    base_scale: rng.random_range(1.0f32..2.0),
+                    scale: glam::Vec3::splat(1.0 / PARTICLE_MODEL_DIM),
                 },
                 NewtonBody {
                     mass: 0.001,
@@ -280,6 +280,13 @@ pub fn projectile(
                 },
                 sprite,
             ));
+            particle_members.push(entity);
+        }
+        if !particle_members.is_empty() {
+            commands.push((ParticleGroup {
+                scale: glam::Vec3::splat(1.0 / PARTICLE_MODEL_DIM),
+                members: particle_members,
+            },));
         }
 
         // Re-upload the carved model to the renderer.
