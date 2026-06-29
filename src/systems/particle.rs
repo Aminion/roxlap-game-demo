@@ -7,7 +7,7 @@ use crate::{
     Dt,
 };
 
-pub const PARTICLE_LIFETIME: f64 = 10.0;
+pub const PARTICLE_LIFETIME: f64 = 3.0;
 /// Side length of the shared particle cube model in voxels.
 /// render_system divides base_scale by this so base_scale == 1.0 → 1 asteroid voxel.
 pub const PARTICLE_MODEL_DIM: f32 = 3.0;
