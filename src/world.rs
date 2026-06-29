@@ -181,7 +181,7 @@ pub fn register_miner_model(
     renderer: &mut SceneRenderer,
     registry: &mut SpriteModelRegistry,
 ) -> MinerModel {
-    static KV6_BYTES: &[u8] = include_bytes!("../model.kv6");
+    static KV6_BYTES: &[u8] = include_bytes!("../unit.kv6");
     let mut kv6 = kv6_fmt::parse(KV6_BYTES).expect("model.kv6 parse failed");
     // The file's pivot is at the +++ corner (9,9,9); set it to the geometric
     // centre so body.pos maps to the centre voxel of the 9×9×9 model.
