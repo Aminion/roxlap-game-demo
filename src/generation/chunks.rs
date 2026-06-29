@@ -55,7 +55,7 @@ const CHUNK_NOISE_OCTAVES: u32 = 3;
 const PERLIN_MAX: f32 = 0.866;
 
 /// Fraction of asteroids that contain crystal deposits. Range [0.0, 1.0].
-const CRYSTAL_SPAWN_CHANCE: f32 = 0.01;
+const CRYSTAL_SPAWN_CHANCE: f32 = 0.1;
 
 /// Max axis offset from chunk centre: CHUNK_SIZE/2 − half_extent = 32 − 8 = 24.
 /// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).

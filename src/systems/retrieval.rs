@@ -2,7 +2,10 @@ use glam::DVec3;
 use legion::{world::SubWorld, *};
 
 use crate::{
-    components::{aabb::Aabb, crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody},
+    components::{
+        aabb::Aabb, camera::CameraComponent, crystal::CrystalMarker, miner::Miner,
+        newton_body::NewtonBody,
+    },
     math::ray_aabb,
     systems::energy::Energy,
     Dt, Retrieving,
@@ -13,6 +16,7 @@ const RETRIEVAL_ENERGY_DRAIN: f64 = 5.0;
 
 #[system]
 #[read_component(Miner)]
+#[read_component(CameraComponent)]
 #[read_component(CrystalMarker)]
 #[read_component(Aabb)]
 #[write_component(NewtonBody)]
@@ -33,10 +37,11 @@ pub fn retrieval(
     }
     energy.current -= cost;
 
-    let (miner_pos, forward) = {
-        let mut q = <(&Miner, &NewtonBody)>::query();
-        let (_, body) = q.iter(world).next().expect("miner missing");
-        (body.pos, (body.orientation * DVec3::NEG_Z).normalize())
+    let (miner_pos, ray_origin, forward) = {
+        let mut q = <(&Miner, &NewtonBody, &CameraComponent)>::query();
+        let (_, body, cam) = q.iter(world).next().expect("miner missing");
+        let fwd = (body.orientation * DVec3::NEG_Z).normalize();
+        (body.pos, DVec3::from(cam.0.pos), fwd)
     };
 
     // Find the closest crystal whose AABB intersects the ship's forward ray.
@@ -45,7 +50,7 @@ pub fn retrieval(
         let mut q = <(Entity, &CrystalMarker, &NewtonBody, &Aabb)>::query();
         q.iter(world)
             .filter_map(|(entity, _, body, aabb)| {
-                let t = ray_aabb(miner_pos, forward, aabb.min, aabb.max)?;
+                let t = ray_aabb(ray_origin, forward, aabb.min, aabb.max)?;
                 Some((*entity, body.pos, t))
             })
             .min_by(|a, b| a.2.total_cmp(&b.2))
