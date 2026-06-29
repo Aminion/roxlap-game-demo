@@ -8,7 +8,7 @@ use rand::{
 use roxlap_core::Camera;
 use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
 
-use crate::sprites::{build_crystal, build_projectile};
+use crate::sprites::{build_crystal, build_particle, build_projectile};
 use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer, SpriteModelId};
 
 use crate::components::{
@@ -123,12 +123,17 @@ pub struct CrystalModel {
     pub chain_id: u32,
 }
 
-/// Register one shared model for projectiles and one for crystals.
+pub struct ParticleModel {
+    pub model_id: SpriteModelId,
+    pub chain_id: u32,
+}
+
+/// Register shared models for projectiles, crystals, and debris particles.
 /// Called once at startup and again after every `restart_world`.
 pub fn register_shared_sprites(
     renderer: &mut SceneRenderer,
     registry: &mut SpriteModelRegistry,
-) -> (ProjectileModel, CrystalModel) {
+) -> (ProjectileModel, CrystalModel, ParticleModel) {
     let proj_chain_id = registry.add(build_projectile());
     let proj_kv6 = sprite_model_to_kv6(registry.model(proj_chain_id));
     let proj_model_id = renderer.add_sprite_model(&proj_kv6);
@@ -136,6 +141,10 @@ pub fn register_shared_sprites(
     let crystal_chain_id = registry.add(build_crystal());
     let crystal_kv6 = sprite_model_to_kv6(registry.model(crystal_chain_id));
     let crystal_model_id = renderer.add_sprite_model(&crystal_kv6);
+
+    let particle_chain_id = registry.add(build_particle());
+    let particle_kv6 = sprite_model_to_kv6(registry.model(particle_chain_id));
+    let particle_model_id = renderer.add_sprite_model(&particle_kv6);
 
     (
         ProjectileModel {
@@ -145,6 +154,10 @@ pub fn register_shared_sprites(
         CrystalModel {
             model_id: crystal_model_id,
             chain_id: crystal_chain_id,
+        },
+        ParticleModel {
+            model_id: particle_model_id,
+            chain_id: particle_chain_id,
         },
     )
 }

@@ -38,6 +38,7 @@ use crate::systems::{
     energy::{Energy, ENERGY_MAX},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
+    particle::particle_system,
     performance_info::{update_info_system, PerformanceInfo},
     presence_position::presence_position_update_system,
     projectile::projectile_system,
@@ -48,7 +49,7 @@ use crate::systems::{
 };
 use crate::world::{
     generate_star_sky, miner_initial_forward, populate_world, register_shared_sprites,
-    CrystalModel, ProjectileModel,
+    CrystalModel, ParticleModel, ProjectileModel,
 };
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
@@ -173,7 +174,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let world_scene = roxlap_scene::Scene::new();
 
     let mut sprite_registry = SpriteModelRegistry::new();
-    let (projectile_model, crystal_model) =
+    let (projectile_model, crystal_model, particle_model) =
         register_shared_sprites(&mut renderer, &mut sprite_registry);
 
     resources.insert(ScreenState {
@@ -215,6 +216,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(sprite_registry);
     resources.insert(projectile_model);
     resources.insert(crystal_model);
+    resources.insert(particle_model);
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
@@ -243,6 +245,7 @@ fn build_schedule() -> Schedule {
         .add_system(shooting_system())
         .add_system(projectile_system())
         .add_system(crystal_system())
+        .add_system(particle_system())
         // Flush so despawned entities are removed before render.
         .flush()
         .add_thread_local(render_system())
@@ -268,14 +271,15 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     // Reset CPU sprite registry so chain_ids restart from 0.
     *resources.get_mut::<SpriteModelRegistry>().unwrap() = SpriteModelRegistry::new();
 
-    // Re-register the shared projectile/crystal models on the clean slate.
-    let (proj, crystal) = {
+    // Re-register the shared projectile/crystal/particle models on the clean slate.
+    let (proj, crystal, particle) = {
         let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
         let mut registry = resources.get_mut::<SpriteModelRegistry>().unwrap();
         register_shared_sprites(&mut renderer, &mut registry)
     };
     *resources.get_mut::<ProjectileModel>().unwrap() = proj;
     *resources.get_mut::<CrystalModel>().unwrap() = crystal;
+    *resources.get_mut::<ParticleModel>().unwrap() = particle;
 
     // Rebuild ECS world with a fresh miner.
     *world = World::default();

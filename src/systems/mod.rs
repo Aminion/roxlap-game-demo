@@ -5,6 +5,7 @@ pub mod crystal;
 pub mod energy;
 pub mod miner_input;
 pub mod newton_body;
+pub mod particle;
 pub mod performance_info;
 pub mod presence_position;
 pub mod projectile;

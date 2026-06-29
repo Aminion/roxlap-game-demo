@@ -11,11 +11,12 @@ use crate::{
         asteroid::{AsteroidMinerals, AsteroidVoxelInfo},
         crystal::CrystalMarker,
         newton_body::NewtonBody,
+        particle::Particle,
         projectile::Projectile,
         sprite_id::Sprite,
     },
-    systems::sprite::perform_despawn,
-    world::{spawn_shared_instance, sprite_model_to_kv6, CrystalModel},
+    systems::{particle::PARTICLE_LIFETIME, sprite::perform_despawn},
+    world::{spawn_shared_instance, sprite_model_to_kv6, CrystalModel, ParticleModel},
     Dt, LoadedAsteroids,
 };
 
@@ -45,6 +46,7 @@ pub fn projectile(
     #[resource] loaded: &mut LoadedAsteroids,
     #[resource] registry: &mut SpriteModelRegistry,
     #[resource] crystal_model: &CrystalModel,
+    #[resource] particle_model: &ParticleModel,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -202,7 +204,7 @@ pub fn projectile(
             Err(_) => (vec![], vec![]),
         };
 
-        let (empty, current_voxel_count) = carve_sphere(
+        let (empty, current_voxel_count, removed_voxels) = carve_sphere(
             registry.model_mut(hit.ast_chain_id),
             hv.as_ivec3(),
             HIT_CARVE_RADIUS,
@@ -247,6 +249,39 @@ pub fn projectile(
             ));
         }
 
+        // Spawn one debris particle per carved voxel.
+        for voxel in &removed_voxels {
+            let local_offset = voxel.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
+            let world_pos = hit.ast_pos + hit.ast_orientation * local_offset;
+            let dir = DVec3::new(
+                rng.random_range(-1.0f64..1.0),
+                rng.random_range(-1.0f64..1.0),
+                rng.random_range(-1.0f64..1.0),
+            )
+            .normalize_or_zero();
+            let speed = rng.random_range(0.1f64..40.0);
+            let sprite =
+                spawn_shared_instance(renderer, particle_model.model_id, particle_model.chain_id);
+            commands.push((
+                Particle {
+                    lifetime: PARTICLE_LIFETIME,
+                    base_scale: rng.random_range(1.0f32..2.0),
+                },
+                NewtonBody {
+                    mass: 0.001,
+                    pos: world_pos,
+                    vel: hit.ast_vel + dir * speed,
+                    orientation: DQuat::IDENTITY,
+                    angular_vel: DVec3::new(
+                        rng.random_range(-8.0f64..8.0),
+                        rng.random_range(-8.0f64..8.0),
+                        rng.random_range(-8.0f64..8.0),
+                    ),
+                },
+                sprite,
+            ));
+        }
+
         // Re-upload the carved model to the renderer.
         renderer.refresh_sprite_model(
             hit.ast_model_id,
@@ -282,10 +317,13 @@ pub fn projectile(
     }
 }
 
-/// Carve a sphere of `radius` voxels centred on `center` in-place. Returns `(is_empty, count)`.
-fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32) {
+/// Carve a sphere of `radius` voxels centred on `center` in-place.
+/// Returns `(is_empty, remaining_count, removed_positions)`.
+fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32, Vec<IVec3>) {
     let r = radius as i32;
     let dims_i = IVec3::from(model.dims.map(|d| d as i32));
+    let occ = model.occ_words_per_col as usize;
+    let mut removed = Vec::new();
     for dz in -r..=r {
         for dy in -r..=r {
             for dx in -r..=r {
@@ -295,13 +333,18 @@ fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u
                 }
                 let c = center + d;
                 if c.cmpge(IVec3::ZERO).all() && c.cmplt(dims_i).all() {
+                    let col = (c.x as u32 + c.y as u32 * model.dims[0]) as usize;
+                    let word_idx = col * occ + c.z as usize / 32;
+                    if (model.occupancy[word_idx] >> (c.z % 32)) & 1 == 1 {
+                        removed.push(c);
+                    }
                     model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
                 }
             }
         }
     }
     let count = model.colors.len() as u32;
-    (count == 0, count)
+    (count == 0, count, removed)
 }
 
 /// Return the subset of `minerals` whose voxel index lies within `radius` of `center`.

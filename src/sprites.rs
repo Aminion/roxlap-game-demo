@@ -209,6 +209,22 @@ pub fn build_crystal() -> SpriteModel {
     }
 }
 
+// ── Particle ──────────────────────────────────────────────────────────────────
+
+/// Single grey voxel shared by all debris particles.
+pub fn build_particle() -> SpriteModel {
+    SpriteModel {
+        dims: [1, 1, 1],
+        occ_words_per_col: 1,
+        pivot: [0.5, 0.5, 0.5],
+        occupancy: vec![1u32],
+        color_offsets: vec![0u32, 1u32],
+        colors: vec![0x80_A0_A0_A0],
+        dirs: vec![0u32],
+        voxel_world_size: 1.0,
+    }
+}
+
 // ── Projectile ────────────────────────────────────────────────────────────────
 
 pub fn build_projectile() -> SpriteModel {

@@ -1,12 +1,15 @@
-use glam::{DVec3, Vec3};
+use glam::{DMat3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{opticast::OpticastSettings, Camera};
 use roxlap_render::{DynSpriteTransform, FrameParams, SceneRenderer};
 
 use crate::{
-    components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::Sprite},
+    components::{
+        camera::CameraComponent, newton_body::NewtonBody, particle::Particle, sprite_id::Sprite,
+    },
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
+        particle::PARTICLE_LIFETIME,
         performance_info::PerformanceInfo,
     },
     AutopilotTarget, ScreenState,
@@ -17,6 +20,7 @@ use crate::{
 #[read_component(CameraComponent)]
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
+#[read_component(Particle)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] scene: &mut roxlap_scene::Scene,
@@ -43,9 +47,12 @@ pub fn render(
     // Update all sprite instance transforms for this frame.
     {
         let mut updates: Vec<(roxlap_render::SpriteInstanceId, DynSpriteTransform)> = Vec::new();
-        let mut q = <(&Sprite, &NewtonBody)>::query();
-        for (sprite, body) in q.iter(world) {
-            updates.push((sprite.instance_id, sprite_from_body(body)));
+        let mut q = <(&Sprite, &NewtonBody, Option<&Particle>)>::query();
+        for (sprite, body, particle) in q.iter(world) {
+            let scale = particle
+                .map(|p| ((p.lifetime / PARTICLE_LIFETIME) as f32 * p.base_scale).max(0.01))
+                .unwrap_or(1.0);
+            updates.push((sprite.instance_id, sprite_from_body(body, scale)));
         }
         renderer.set_sprite_instance_transforms(&updates);
     }
@@ -183,14 +190,12 @@ fn draw_hud(
     );
 }
 
-fn sprite_from_body(b: &NewtonBody) -> DynSpriteTransform {
-    let right = (b.orientation * DVec3::X).as_vec3();
-    let up = (b.orientation * DVec3::Y).as_vec3();
-    let forward = (b.orientation * DVec3::Z).as_vec3();
+fn sprite_from_body(b: &NewtonBody, scale: f32) -> DynSpriteTransform {
+    let rot = DMat3::from_quat(b.orientation) * scale as f64;
     DynSpriteTransform {
         pos: b.pos.as_vec3().to_array(),
-        right: right.to_array(),
-        up: up.to_array(),
-        forward: forward.to_array(),
+        right: rot.x_axis.as_vec3().to_array(),
+        up: rot.y_axis.as_vec3().to_array(),
+        forward: rot.z_axis.as_vec3().to_array(),
     }
 }
