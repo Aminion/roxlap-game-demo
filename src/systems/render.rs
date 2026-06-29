@@ -9,7 +9,7 @@ use crate::{
     },
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
-        particle::PARTICLE_LIFETIME,
+        particle::{PARTICLE_LIFETIME, PARTICLE_MODEL_DIM},
         performance_info::PerformanceInfo,
     },
     AutopilotTarget, ScreenState,
@@ -50,7 +50,10 @@ pub fn render(
         let mut q = <(&Sprite, &NewtonBody, Option<&Particle>)>::query();
         for (sprite, body, particle) in q.iter(world) {
             let scale = particle
-                .map(|p| ((p.lifetime / PARTICLE_LIFETIME) as f32 * p.base_scale).max(0.01))
+                .map(|p| {
+                    ((p.lifetime / PARTICLE_LIFETIME) as f32 * p.base_scale / PARTICLE_MODEL_DIM)
+                        .max(0.01)
+                })
                 .unwrap_or(1.0);
             updates.push((sprite.instance_id, sprite_from_body(body, scale)));
         }
