@@ -211,16 +211,25 @@ pub fn build_crystal() -> SpriteModel {
 
 // ── Particle ──────────────────────────────────────────────────────────────────
 
-/// Single grey voxel shared by all debris particles.
+/// 3×3×3 solid cube with a Z-gradient baked in: z=0 (voxlap "up") is bright,
+/// z=2 (voxlap "down") is dark. Simulates top-down lighting; tumbling via
+/// angular_vel cycles the bright/shadow faces. Each particle instance scales
+/// by 1/3 relative to the 1×1×1 case to keep the same world-space size.
 pub fn build_particle() -> SpriteModel {
+    const DIM: u32 = 3;
+    let cols = (DIM * DIM) as usize;
+    // Z-gradient: bright top (z=0 = voxlap up), dark bottom (z=2 = voxlap down).
+    let z_colors = [0x80_D0_D0_D0u32, 0x80_A0_A0_A0u32, 0x80_60_60_60u32];
     SpriteModel {
-        dims: [1, 1, 1],
+        dims: [DIM, DIM, DIM],
         occ_words_per_col: 1,
-        pivot: [0.5, 0.5, 0.5],
-        occupancy: vec![1u32],
-        color_offsets: vec![0u32, 1u32],
-        colors: vec![0x80_A0_A0_A0],
-        dirs: vec![0u32],
+        pivot: [1.5, 1.5, 1.5],
+        // Each column has bits 0,1,2 set (z=0..2 all occupied).
+        occupancy: vec![0b111u32; cols],
+        // 3 colors per column, 9 columns → 27 entries + 1 sentinel.
+        color_offsets: (0..=cols).map(|i| (i * DIM as usize) as u32).collect(),
+        colors: (0..cols).flat_map(|_| z_colors).collect(),
+        dirs: vec![0u32; cols * DIM as usize],
         voxel_world_size: 1.0,
     }
 }

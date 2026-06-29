@@ -265,7 +265,7 @@ pub fn projectile(
             commands.push((
                 Particle {
                     lifetime: PARTICLE_LIFETIME,
-                    base_scale: rng.random_range(1.0f32..2.0),
+                    base_scale: rng.random_range((1.0f32 / 3.0)..(2.0f32 / 3.0)),
                 },
                 NewtonBody {
                     mass: 0.001,
