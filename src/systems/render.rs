@@ -1,12 +1,12 @@
 use glam::{DMat3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{opticast::OpticastSettings, Camera};
-use roxlap_render::{DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
+use roxlap_render::{DynSpriteTransform, FrameParams, LightRig, PointLight, SceneRenderer};
 
 use crate::{
     components::{
-        camera::CameraComponent, headlight::Headlight, newton_body::NewtonBody, particle::Particle,
-        sprite_id::Sprite,
+        camera::CameraComponent, crystal::CrystalMarker, headlight::Headlight,
+        newton_body::NewtonBody, particle::Particle, sprite_id::Sprite,
     },
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
@@ -22,6 +22,7 @@ use crate::{
 #[read_component(NewtonBody)]
 #[read_component(Particle)]
 #[read_component(Headlight)]
+#[read_component(CrystalMarker)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] scene: &mut roxlap_scene::Scene,
@@ -65,6 +66,19 @@ pub fn render(
         q.iter(world).next().and_then(|h| h.0)
     };
 
+    let crystal_lights: Vec<PointLight> = {
+        let mut q = <(&CrystalMarker, &NewtonBody)>::query();
+        q.iter(world)
+            .map(|(_, body)| PointLight {
+                position: body.pos.as_vec3().to_array(),
+                color: [1.0, 0.0, 0.0],
+                intensity: 1.5,
+                radius: 24.0,
+                casts_shadow: false,
+            })
+            .collect()
+    };
+
     let settings = OpticastSettings::for_oracle_framebuffer(screen.width, screen.height);
     let frame = FrameParams {
         settings: &settings,
@@ -80,6 +94,7 @@ pub fn render(
         side_shades: [0; 6],
         lights: Some(LightRig {
             sun,
+            points: &crystal_lights,
             ..LightRig::default()
         }),
     };
