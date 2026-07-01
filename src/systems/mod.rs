@@ -3,6 +3,7 @@ pub mod autopilot;
 pub mod camera;
 pub mod crystal;
 pub mod energy;
+pub mod lighting;
 pub mod miner_input;
 pub mod newton_body;
 pub mod particle;

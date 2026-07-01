@@ -36,6 +36,7 @@ use crate::systems::{
     camera::camera_update_system,
     crystal::crystal_system,
     energy::{Energy, ENERGY_MAX},
+    lighting::{lighting_system, Headlight},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     particle::particle_system,
@@ -227,6 +228,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(QueuedChunks(HashSet::new()));
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
+    resources.insert(Headlight(None));
 
     resources
 }
@@ -240,6 +242,7 @@ fn build_schedule() -> Schedule {
         .add_system(retrieval_system())
         .add_system(newton_body_system())
         .add_system(camera_update_system())
+        .add_system(lighting_system())
         .add_system(presence_position_update_system())
         // Flush so newly-spawned asteroid entities are visible to subsequent systems.
         .flush()

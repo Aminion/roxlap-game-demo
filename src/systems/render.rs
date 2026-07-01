@@ -1,15 +1,15 @@
 use glam::{DMat3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{opticast::OpticastSettings, Camera};
-use roxlap_render::{DirectionalLight, DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
+use roxlap_render::{DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
 
 use crate::{
     components::{
-        camera::CameraComponent, miner::Miner, newton_body::NewtonBody, particle::Particle,
-        sprite_id::Sprite,
+        camera::CameraComponent, newton_body::NewtonBody, particle::Particle, sprite_id::Sprite,
     },
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
+        lighting::Headlight,
         performance_info::PerformanceInfo,
     },
     AutopilotTarget, ScreenState,
@@ -21,7 +21,6 @@ use crate::{
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
 #[read_component(Particle)]
-#[read_component(Miner)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] scene: &mut roxlap_scene::Scene,
@@ -30,6 +29,7 @@ pub fn render(
     #[resource] egui_ctx: &egui::Context,
     #[resource] perf: &mut PerformanceInfo,
     #[resource] energy: &Energy,
+    #[resource] headlight: &Headlight,
     world: &SubWorld,
 ) {
     let screen_size = egui::vec2(screen.width as f32, screen.height as f32);
@@ -59,25 +59,6 @@ pub fn render(
     // Snapshot work time before vsync blocks inside render.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
-    let miner_pos: Option<[f32; 3]> = {
-        let mut q = <(&Miner, &NewtonBody)>::query();
-        q.iter(world)
-            .next()
-            .map(|(_, body)| body.pos.as_vec3().to_array())
-    };
-
-    let headlight = miner_pos.map(|mp| {
-        let cam = Vec3::from_array(camera.pos.map(|v| v as f32));
-        let target = Vec3::from_array(mp);
-        let dir = (target - cam).normalize_or_zero();
-        DirectionalLight {
-            direction: dir.to_array(),
-            color: [1.0; 3],
-            intensity: 0.5,
-            casts_shadow: false,
-        }
-    });
-
     let settings = OpticastSettings::for_oracle_framebuffer(screen.width, screen.height);
     let frame = FrameParams {
         settings: &settings,
@@ -92,7 +73,7 @@ pub fn render(
         draw_sprites: true,
         side_shades: [0; 6],
         lights: Some(LightRig {
-            sun: headlight,
+            sun: headlight.0,
             ..LightRig::default()
         }),
     };
