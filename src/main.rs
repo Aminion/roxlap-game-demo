@@ -36,7 +36,7 @@ use crate::systems::{
     camera::camera_update_system,
     crystal::crystal_system,
     energy::{Energy, ENERGY_MAX},
-    lighting::lighting_system,
+    lighting::{lighting_system, PointLights},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     particle::particle_system,
@@ -47,6 +47,7 @@ use crate::systems::{
     retrieval::retrieval_system,
     shooting::shooting_system,
     thruster::thruster_system,
+    ui::ui_system,
 };
 use crate::world::{
     generate_star_sky, miner_initial_forward, populate_world, register_miner_model,
@@ -235,6 +236,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
     resources.insert(GameState::TitleScreen);
+    resources.insert(PointLights(Vec::new()));
 
     resources
 }
@@ -248,7 +250,6 @@ fn build_schedule() -> Schedule {
         .add_system(retrieval_system())
         .add_system(newton_body_system())
         .add_system(camera_update_system())
-        .add_system(lighting_system())
         .add_system(presence_position_update_system())
         // Flush so newly-spawned asteroid entities are visible to subsequent systems.
         .flush()
@@ -258,8 +259,11 @@ fn build_schedule() -> Schedule {
         .add_system(crystal_system())
         .add_system(particle_system())
         // Flush so despawned entities are removed before render.
+        // lighting_system runs here so crystal lights reflect post-despawn state.
         .flush()
+        .add_system(lighting_system())
         .add_thread_local(render_system())
+        .add_thread_local(ui_system())
         .build()
 }
 

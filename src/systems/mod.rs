@@ -15,3 +15,4 @@ pub mod retrieval;
 pub mod shooting;
 pub mod sprite;
 pub mod thruster;
+pub mod ui;
