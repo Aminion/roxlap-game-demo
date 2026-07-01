@@ -73,7 +73,7 @@ pub fn render(
         DirectionalLight {
             direction: dir.to_array(),
             color: [1.0; 3],
-            intensity: 1.0,
+            intensity: 0.5,
             casts_shadow: false,
         }
     });
