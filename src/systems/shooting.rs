@@ -55,7 +55,9 @@ pub fn shooting(
             if let Ok(entry) = world.entry_ref(entity) {
                 if let Ok(aabb) = entry.get_component::<Aabb>() {
                     if let Some(t) = ray_aabb(cam_pos, forward, aabb.min, aabb.max) {
-                        if t < best_t {
+                        let hit = cam_pos + forward * t;
+                        // Discard hits behind the miner (camera inside an asteroid AABB).
+                        if (hit - miner_pos).dot(forward) > 0.0 && t < best_t {
                             best_t = t;
                         }
                     }
