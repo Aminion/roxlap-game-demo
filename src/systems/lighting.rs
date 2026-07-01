@@ -2,9 +2,12 @@ use glam::Vec3;
 use legion::{system, world::SubWorld, *};
 use roxlap_render::{DirectionalLight, PointLight};
 
-use crate::components::{
-    camera::CameraComponent, crystal::CrystalMarker, headlight::Headlight, miner::Miner,
-    newton_body::NewtonBody,
+use crate::{
+    components::{
+        camera::CameraComponent, crystal::CrystalMarker, headlight::Headlight, miner::Miner,
+        newton_body::NewtonBody,
+    },
+    world::MinerModel,
 };
 
 const HEADLIGHT_INTENSITY: f32 = 0.25;
@@ -17,7 +20,11 @@ pub struct PointLights(pub Vec<PointLight>);
 #[read_component(CameraComponent)]
 #[write_component(Headlight)]
 #[read_component(CrystalMarker)]
-pub fn lighting(world: &mut SubWorld, #[resource] point_lights: &mut PointLights) {
+pub fn lighting(
+    world: &mut SubWorld,
+    #[resource] point_lights: &mut PointLights,
+    #[resource] miner_model: &MinerModel,
+) {
     {
         let mut q = <(&Miner, &NewtonBody, &CameraComponent, &mut Headlight)>::query();
         for (_, body, cam, headlight) in q.iter_mut(world) {
@@ -34,6 +41,18 @@ pub fn lighting(world: &mut SubWorld, #[resource] point_lights: &mut PointLights
     }
 
     point_lights.0.clear();
+
+    let mut q = <(&Miner, &NewtonBody)>::query();
+    for (_, body) in q.iter(world) {
+        point_lights.0.push(PointLight {
+            position: body.pos.as_vec3().to_array(),
+            color: [1.0; 3],
+            intensity: 1.0,
+            radius: miner_model.radius,
+            casts_shadow: false,
+        });
+    }
+
     let mut q = <(&CrystalMarker, &NewtonBody)>::query();
     for (_, body) in q.iter(world) {
         point_lights.0.push(PointLight {

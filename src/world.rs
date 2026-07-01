@@ -176,22 +176,33 @@ pub struct ParticleModel {
 pub struct MinerModel {
     pub model_id: SpriteModelId,
     pub chain_id: u32,
+    /// Half the largest KV6 dimension — used as the ship's point-light radius.
+    pub radius: f32,
+    /// Half the KV6 z-depth — distance from body center to the nose along the forward axis.
+    pub nose_offset: f64,
 }
 
 pub fn register_miner_model(
     renderer: &mut SceneRenderer,
     registry: &mut SpriteModelRegistry,
 ) -> MinerModel {
-    static KV6_BYTES: &[u8] = include_bytes!("../unit.kv6");
+    static KV6_BYTES: &[u8] = include_bytes!("../model.kv6");
     let mut kv6 = kv6_fmt::parse(KV6_BYTES).expect("model.kv6 parse failed");
-    // The file's pivot is at the +++ corner (9,9,9); set it to the geometric
-    // centre so body.pos maps to the centre voxel of the 9×9×9 model.
+    // Override whatever pivot the file stores with the geometric centre so
+    // body.pos always maps to the model's centre regardless of its dimensions.
     kv6.xpiv = kv6.xsiz as f32 * 0.5;
     kv6.ypiv = kv6.ysiz as f32 * 0.5;
     kv6.zpiv = kv6.zsiz as f32 * 0.5;
+    let radius = kv6.xsiz.max(kv6.ysiz).max(kv6.zsiz) as f32 * 0.5;
+    let nose_offset = kv6.zsiz as f64 * 0.5;
     let model_id = renderer.add_sprite_model(&kv6);
     let chain_id = registry.add(kv6_to_sprite_model(&kv6));
-    MinerModel { model_id, chain_id }
+    MinerModel {
+        model_id,
+        chain_id,
+        radius,
+        nose_offset,
+    }
 }
 
 /// Register shared models for projectiles, crystals, and debris particles.

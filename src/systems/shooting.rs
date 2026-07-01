@@ -5,7 +5,7 @@ use roxlap_render::SceneRenderer;
 use crate::{
     components::{cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile},
     systems::energy::{Energy, SHOT_COST},
-    world::{spawn_shared_instance, ProjectileModel},
+    world::{spawn_shared_instance, MinerModel, ProjectileModel},
     Dt,
 };
 
@@ -23,6 +23,7 @@ pub fn shooting(
     commands: &mut CommandBuffer,
     #[resource] renderer: &mut SceneRenderer,
     #[resource] proj_model: &ProjectileModel,
+    #[resource] miner_model: &MinerModel,
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
 ) {
@@ -40,7 +41,8 @@ pub fn shooting(
         (body.pos, body.vel, body.mass, fwd)
     };
 
-    // Phase 2: apply recoil, spawn projectile along miner's nose direction.
+    // Phase 2: apply recoil, spawn projectile from the nose.
+    let spawn_pos = miner_pos + shoot_dir * miner_model.nose_offset;
     let spawn_vel = miner_vel + shoot_dir * PROJECTILE_SPEED;
 
     {
@@ -56,7 +58,7 @@ pub fn shooting(
         },
         NewtonBody {
             mass: 0.001,
-            pos: miner_pos,
+            pos: spawn_pos,
             vel: spawn_vel,
             orientation: DQuat::IDENTITY,
             angular_vel: DVec3::ZERO,
