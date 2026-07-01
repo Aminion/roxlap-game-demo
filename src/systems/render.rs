@@ -5,11 +5,11 @@ use roxlap_render::{DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
 
 use crate::{
     components::{
-        camera::CameraComponent, newton_body::NewtonBody, particle::Particle, sprite_id::Sprite,
+        camera::CameraComponent, headlight::Headlight, newton_body::NewtonBody, particle::Particle,
+        sprite_id::Sprite,
     },
     systems::{
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
-        lighting::Headlight,
         performance_info::PerformanceInfo,
     },
     AutopilotTarget, ScreenState,
@@ -21,6 +21,7 @@ use crate::{
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
 #[read_component(Particle)]
+#[read_component(Headlight)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] scene: &mut roxlap_scene::Scene,
@@ -29,7 +30,6 @@ pub fn render(
     #[resource] egui_ctx: &egui::Context,
     #[resource] perf: &mut PerformanceInfo,
     #[resource] energy: &Energy,
-    #[resource] headlight: &Headlight,
     world: &SubWorld,
 ) {
     let screen_size = egui::vec2(screen.width as f32, screen.height as f32);
@@ -59,6 +59,11 @@ pub fn render(
     // Snapshot work time before vsync blocks inside render.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
+    let sun = {
+        let mut q = <&Headlight>::query();
+        q.iter(world).next().and_then(|h| h.0)
+    };
+
     let settings = OpticastSettings::for_oracle_framebuffer(screen.width, screen.height);
     let frame = FrameParams {
         settings: &settings,
@@ -73,7 +78,7 @@ pub fn render(
         draw_sprites: true,
         side_shades: [0; 6],
         lights: Some(LightRig {
-            sun: headlight.0,
+            sun,
             ..LightRig::default()
         }),
     };
