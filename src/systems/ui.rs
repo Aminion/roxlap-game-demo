@@ -208,6 +208,7 @@ fn draw_controls_screen(
                                     ("A / D", "Thrust Left / Right"),
                                     ("Q / E", "Roll"),
                                     ("TAB", "Damping"),
+                                    ("C", "Camera 1st/3rd"),
                                     ("LEFT CLICK", "Fire Cannon"),
                                     ("RIGHT CLICK", "Retrieve Crystals"),
                                     ("ESC", "Quit"),

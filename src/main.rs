@@ -83,6 +83,11 @@ pub enum GameState {
     GameOver,
 }
 
+pub enum CameraMode {
+    FirstPerson,
+    ThirdPerson,
+}
+
 // --- GPU resources ---
 
 /// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
@@ -236,6 +241,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
     resources.insert(GameState::TitleScreen);
+    resources.insert(CameraMode::ThirdPerson);
     resources.insert(PointLights(Vec::new()));
 
     resources
@@ -320,6 +326,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<QueuedChunks>().unwrap().0.clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<Retrieving>().unwrap().0 = false;
+    *resources.get_mut::<CameraMode>().unwrap() = CameraMode::ThirdPerson;
     resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();
     *resources.get_mut::<MouseDelta>().unwrap() = Vec2::ZERO;
     resources.get_mut::<FrameTimer>().unwrap().0 = Instant::now();
@@ -380,6 +387,16 @@ fn main() {
                         restart_world(&mut world, &mut resources);
                         *resources.get_mut::<GameState>().unwrap() = GameState::Playing;
                     }
+                }
+                Event::KeyDown {
+                    scancode: Some(Scancode::C),
+                    ..
+                } if playing => {
+                    let mut mode = resources.get_mut::<CameraMode>().unwrap();
+                    *mode = match *mode {
+                        CameraMode::FirstPerson => CameraMode::ThirdPerson,
+                        CameraMode::ThirdPerson => CameraMode::FirstPerson,
+                    };
                 }
                 Event::KeyDown {
                     scancode: Some(code),
