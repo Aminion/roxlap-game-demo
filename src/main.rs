@@ -76,6 +76,12 @@ pub type MouseDelta = Vec2;
 
 pub struct FrameTimer(pub Instant);
 
+pub enum GameState {
+    TitleScreen,
+    Playing,
+    GameOver,
+}
+
 // --- GPU resources ---
 
 /// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
@@ -228,6 +234,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(QueuedChunks(HashSet::new()));
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
+    resources.insert(GameState::TitleScreen);
 
     resources
 }
@@ -346,6 +353,7 @@ fn main() {
         }
 
         for event in event_pump.poll_iter() {
+            let playing = matches!(*resources.get::<GameState>().unwrap(), GameState::Playing);
             match event {
                 Event::Quit { .. }
                 | Event::KeyDown {
@@ -353,13 +361,27 @@ fn main() {
                     ..
                 } => break 'running,
                 Event::KeyDown {
-                    scancode: Some(code),
+                    scancode: Some(Scancode::Return),
                     ..
                 } => {
-                    if code == Scancode::Return && resources.get::<Energy>().unwrap().current <= 0.0
-                    {
+                    let is_title = matches!(
+                        *resources.get::<GameState>().unwrap(),
+                        GameState::TitleScreen
+                    );
+                    let is_game_over =
+                        matches!(*resources.get::<GameState>().unwrap(), GameState::GameOver);
+                    if is_title {
+                        *resources.get_mut::<GameState>().unwrap() = GameState::Playing;
+                    } else if is_game_over {
                         restart_world(&mut world, &mut resources);
-                    } else if let Some(input) = PlayerInput::from_scancode(code) {
+                        *resources.get_mut::<GameState>().unwrap() = GameState::Playing;
+                    }
+                }
+                Event::KeyDown {
+                    scancode: Some(code),
+                    ..
+                } if playing => {
+                    if let Some(input) = PlayerInput::from_scancode(code) {
                         resources
                             .get_mut::<HashSet<PlayerInput>>()
                             .unwrap()
@@ -380,7 +402,7 @@ fn main() {
                 Event::MouseButtonDown {
                     mouse_btn: MouseButton::Left,
                     ..
-                } => {
+                } if playing => {
                     let mut q = <(&Miner, &mut Cannon)>::query();
                     for (_, canon) in q.iter_mut(&mut world) {
                         canon.firing = true;
@@ -398,7 +420,7 @@ fn main() {
                 Event::MouseButtonDown {
                     mouse_btn: MouseButton::Right,
                     ..
-                } => {
+                } if playing => {
                     resources.get_mut::<Retrieving>().unwrap().0 = true;
                 }
                 Event::MouseButtonUp {
@@ -407,7 +429,7 @@ fn main() {
                 } => {
                     resources.get_mut::<Retrieving>().unwrap().0 = false;
                 }
-                Event::MouseMotion { xrel, yrel, .. } => {
+                Event::MouseMotion { xrel, yrel, .. } if playing => {
                     *resources.get_mut::<MouseDelta>().unwrap() +=
                         Vec2::new(xrel as f32, yrel as f32);
                 }
@@ -433,5 +455,12 @@ fn main() {
         }
 
         schedule.execute(&mut world, &mut resources);
+
+        {
+            let is_playing = matches!(*resources.get::<GameState>().unwrap(), GameState::Playing);
+            if is_playing && resources.get::<Energy>().unwrap().current <= 0.0 {
+                *resources.get_mut::<GameState>().unwrap() = GameState::GameOver;
+            }
+        }
     }
 }
