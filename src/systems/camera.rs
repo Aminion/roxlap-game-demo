@@ -3,8 +3,8 @@ use legion::{world::SubWorld, *};
 
 use crate::components::{camera::CameraComponent, miner::Miner, newton_body::NewtonBody};
 
-const THIRD_PERSON_DIST: f64 = 16.0;
-const THIRD_PERSON_HEIGHT: f64 = 6.0;
+const THIRD_PERSON_DIST: f64 = 48.0;
+const THIRD_PERSON_HEIGHT: f64 = 16.0;
 
 #[system]
 #[read_component(Miner)]

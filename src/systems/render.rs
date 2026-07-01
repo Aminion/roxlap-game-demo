@@ -70,6 +70,7 @@ pub fn render(
         gpu_fov_y_rad: fov_y_rad,
         draw_sprites: true,
         side_shades: [0; 6],
+        lights: None,
     };
     renderer.render(scene, &camera, &frame);
 
