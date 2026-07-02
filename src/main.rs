@@ -104,12 +104,61 @@ pub struct WorldSeed(pub u64);
 /// with pending tombstones), so its cost lands on a frame already paying generation.
 pub struct PendingCompact(pub u32);
 
-/// FIFO of chunk coordinates waiting to be generated, drained a few per frame.
-pub struct ChunkQueue(pub VecDeque<IVec3>);
+/// FIFO queue of chunk coordinates waiting to be generated, with an O(1) membership set.
+/// Both structures are kept in sync automatically via the `enqueue`/`pop_front`/`drain_front`
+/// methods, eliminating the manual invariant previously split across two separate resources.
+pub struct ChunkQueue {
+    queue: VecDeque<IVec3>,
+    queued: HashSet<IVec3>,
+}
 
-/// Set mirror of `ChunkQueue` for O(1) membership tests.
-/// Invariant: exactly the chunks currently in `ChunkQueue.0`.
-pub struct QueuedChunks(pub HashSet<IVec3>);
+impl ChunkQueue {
+    pub fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            queued: HashSet::new(),
+        }
+    }
+
+    /// Push `chunk` unless it is already queued. O(1) duplicate check.
+    pub fn enqueue(&mut self, chunk: IVec3) {
+        if self.queued.insert(chunk) {
+            self.queue.push_back(chunk);
+        }
+    }
+
+    pub fn pop_front(&mut self) -> Option<IVec3> {
+        let chunk = self.queue.pop_front()?;
+        self.queued.remove(&chunk);
+        Some(chunk)
+    }
+
+    pub fn front(&self) -> Option<&IVec3> {
+        self.queue.front()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Drain the first `n` entries and remove them from the queued set.
+    pub fn drain_front(&mut self, n: usize) -> Vec<IVec3> {
+        let chunks: Vec<IVec3> = self.queue.drain(..n).collect();
+        for &c in &chunks {
+            self.queued.remove(&c);
+        }
+        chunks
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
+        self.queued.clear();
+    }
+}
 
 // --- SDL2 window handle wrapper for wgpu ---
 
@@ -187,9 +236,8 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     let world_scene = roxlap_scene::Scene::new();
 
     let mut sprite_registry = SpriteModelRegistry::new();
-    let (projectile_model, crystal_model, particle_model) =
-        register_shared_sprites(&mut renderer, &mut sprite_registry);
-    let miner_model = register_miner_model(&mut renderer, &mut sprite_registry);
+    let (projectile_model, crystal_model, particle_model, miner_model) =
+        setup_models(&mut renderer, &mut sprite_registry);
 
     resources.insert(ScreenState {
         width: INITIAL_WINDOW_WIDTH,
@@ -236,8 +284,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(LoadedAsteroids(HashSet::new()));
     resources.insert(WorldSeed(WORLD_SEED));
     resources.insert(PendingCompact(0));
-    resources.insert(ChunkQueue(VecDeque::new()));
-    resources.insert(QueuedChunks(HashSet::new()));
+    resources.insert(ChunkQueue::new());
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
     resources.insert(GameState::TitleScreen);
@@ -277,6 +324,17 @@ fn fov_y(w: u32, h: u32) -> f32 {
     2.0 * f32::atan(h as f32 / w as f32)
 }
 
+/// Register all sprite models against a fresh renderer/registry pair.
+/// Called at startup and on every game restart.
+fn setup_models(
+    renderer: &mut SceneRenderer,
+    registry: &mut SpriteModelRegistry,
+) -> (ProjectileModel, CrystalModel, ParticleModel, MinerModel) {
+    let (proj, crystal, particle) = register_shared_sprites(renderer, registry);
+    let miner = register_miner_model(renderer, registry);
+    (proj, crystal, particle, miner)
+}
+
 fn restart_world(world: &mut World, resources: &mut Resources) {
     // Reset the renderer sprite registry so model/instance handles restart from
     // a clean slate, matching the fresh CPU SpriteModelRegistry chain_ids.
@@ -292,21 +350,15 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     // Reset CPU sprite registry so chain_ids restart from 0.
     *resources.get_mut::<SpriteModelRegistry>().unwrap() = SpriteModelRegistry::new();
 
-    // Re-register the shared projectile/crystal/particle models on the clean slate.
-    let (proj, crystal, particle) = {
+    // Re-register all models on the clean slate.
+    let (proj, crystal, particle, miner_model) = {
         let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
         let mut registry = resources.get_mut::<SpriteModelRegistry>().unwrap();
-        register_shared_sprites(&mut renderer, &mut registry)
+        setup_models(&mut renderer, &mut registry)
     };
     *resources.get_mut::<ProjectileModel>().unwrap() = proj;
     *resources.get_mut::<CrystalModel>().unwrap() = crystal;
     *resources.get_mut::<ParticleModel>().unwrap() = particle;
-
-    let miner_model = {
-        let mut renderer = resources.get_mut::<SceneRenderer>().unwrap();
-        let mut registry = resources.get_mut::<SpriteModelRegistry>().unwrap();
-        register_miner_model(&mut renderer, &mut registry)
-    };
     *resources.get_mut::<MinerModel>().unwrap() = miner_model;
 
     // Rebuild ECS world with a fresh miner.
@@ -322,8 +374,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<VisitedChunks>().unwrap().0.clear();
     resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
     resources.get_mut::<PendingCompact>().unwrap().0 = 0;
-    resources.get_mut::<ChunkQueue>().unwrap().0.clear();
-    resources.get_mut::<QueuedChunks>().unwrap().0.clear();
+    resources.get_mut::<ChunkQueue>().unwrap().clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<Retrieving>().unwrap().0 = false;
     *resources.get_mut::<CameraMode>().unwrap() = CameraMode::ThirdPerson;

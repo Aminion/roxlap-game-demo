@@ -1,6 +1,7 @@
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rayon::prelude::*;
+use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::SceneRenderer;
 
@@ -18,7 +19,7 @@ use crate::{
     },
     systems::sprite::perform_despawn,
     world::spawn_sprite,
-    ChunkQueue, LoadedAsteroids, PendingCompact, QueuedChunks, VisitedChunks, WorldSeed,
+    ChunkQueue, LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed,
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
@@ -40,7 +41,6 @@ pub fn presence_position_update(
     #[resource] world_seed: &WorldSeed,
     #[resource] pending_compact: &mut PendingCompact,
     #[resource] chunk_queue: &mut ChunkQueue,
-    #[resource] queued_chunks: &mut QueuedChunks,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -59,14 +59,13 @@ pub fn presence_position_update(
 
     if updated_pos {
         let despawned = update_sprites(ship_pos, visited, loaded, renderer, world, commands);
-        enqueue_chunks(ship_pos, visited, queued_chunks, chunk_queue);
+        enqueue_chunks(ship_pos, visited, chunk_queue);
         pending_compact.0 += despawned as u32;
     }
 
     drain_chunk_queue(
         ship_pos,
         chunk_queue,
-        queued_chunks,
         visited,
         loaded,
         renderer,
@@ -88,19 +87,10 @@ pub fn presence_position_update(
 }
 
 /// Enqueue all chunks within load radius that are neither visited nor already queued.
-fn enqueue_chunks(
-    ship_pos: DVec3,
-    visited: &VisitedChunks,
-    queued_chunks: &mut QueuedChunks,
-    chunk_queue: &mut ChunkQueue,
-) {
+fn enqueue_chunks(ship_pos: DVec3, visited: &VisitedChunks, chunk_queue: &mut ChunkQueue) {
     for chunk in missing_chunks(ship_pos, LOAD_RADIUS, &visited.0) {
-        if !queued_chunks.0.contains(&chunk) {
-            // Mark as queued immediately so subsequent threshold crossings don't re-enqueue.
-            // `visited` is only updated when the chunk is actually generated.
-            chunk_queue.0.push_back(chunk);
-            queued_chunks.0.insert(chunk);
-        }
+        // enqueue() is a no-op if the chunk is already in the queue set.
+        chunk_queue.enqueue(chunk);
     }
 }
 
@@ -110,7 +100,6 @@ fn enqueue_chunks(
 fn drain_chunk_queue(
     ship_pos: DVec3,
     chunk_queue: &mut ChunkQueue,
-    queued_chunks: &mut QueuedChunks,
     visited: &mut VisitedChunks,
     loaded: &mut LoadedAsteroids,
     renderer: &mut SceneRenderer,
@@ -118,7 +107,7 @@ fn drain_chunk_queue(
     commands: &mut CommandBuffer,
     world_seed: u64,
 ) {
-    if chunk_queue.0.is_empty() {
+    if chunk_queue.is_empty() {
         return;
     }
 
@@ -126,29 +115,29 @@ fn drain_chunk_queue(
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
 
     // Drain stale front entries (ship moved away before they were generated).
-    while let Some(&front) = chunk_queue.0.front() {
+    while let Some(&front) = chunk_queue.front() {
         if (front - center).length_squared() > r2 {
-            chunk_queue.0.pop_front();
-            queued_chunks.0.remove(&front);
+            chunk_queue.pop_front();
         } else {
             break;
         }
     }
 
-    if chunk_queue.0.is_empty() {
+    if chunk_queue.is_empty() {
         return;
     }
 
-    let batch_size = CHUNK_BATCH_SIZE.min(chunk_queue.0.len());
-    let batch: Vec<IVec3> = chunk_queue.0.drain(..batch_size).collect();
-    for &chunk in &batch {
-        queued_chunks.0.remove(&chunk);
-    }
+    let batch_size = CHUNK_BATCH_SIZE.min(chunk_queue.len());
+    let batch = chunk_queue.drain_front(batch_size);
+
+    // Build Perlin noise once for the whole batch — all chunks share the same world seed,
+    // so rebuilding the permutation table per chunk is redundant work.
+    let perlin = PerlinNoise3D::new(world_seed);
 
     // Parallel compute phase — par_iter preserves order so chain_id assignment is deterministic.
     let results: Vec<ChunkComputeResult> = batch
         .into_par_iter()
-        .map(|chunk| compute_chunk(chunk, world_seed))
+        .map(|chunk| compute_chunk(chunk, world_seed, &perlin))
         .collect();
 
     // Sequential upload phase: GPU registry access and ECS command buffer are single-threaded.

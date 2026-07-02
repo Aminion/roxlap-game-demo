@@ -55,7 +55,7 @@ const CHUNK_NOISE_OCTAVES: u32 = 3;
 const PERLIN_MAX: f32 = 0.866;
 
 /// Fraction of asteroids that contain crystal deposits. Range [0.0, 1.0].
-const CRYSTAL_SPAWN_CHANCE: f32 = 0.1;
+const CRYSTAL_SPAWN_CHANCE: f32 = 0.01;
 
 /// Max axis offset from chunk centre: CHUNK_SIZE/2 − half_extent = 32 − 8 = 24.
 /// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
@@ -76,8 +76,12 @@ pub(crate) enum ChunkComputeResult {
 
 /// Pure-CPU chunk evaluation: density noise + optional asteroid model building.
 /// No GPU or ECS access — safe to call from rayon threads.
-pub(crate) fn compute_chunk(chunk: IVec3, world_seed: u64) -> ChunkComputeResult {
-    let perlin = PerlinNoise3D::new(world_seed);
+/// `perlin` is constructed once per batch by the caller and shared across threads.
+pub(crate) fn compute_chunk(
+    chunk: IVec3,
+    world_seed: u64,
+    perlin: &PerlinNoise3D,
+) -> ChunkComputeResult {
     let raw = perlin.fbm(
         chunk.x as f32,
         chunk.y as f32,
