@@ -1,6 +1,6 @@
 use glam::{DQuat, DVec3, IVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
-use rand::{seq::SliceRandom, RngExt};
+use rand::RngExt;
 use roxlap_gpu::SpriteModel;
 use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::{SceneRenderer, SpriteModelId};
@@ -207,7 +207,7 @@ pub fn projectile(
             Err(_) => (vec![], vec![]),
         };
 
-        let (empty, current_voxel_count, mut removed_voxels) = carve_sphere(
+        let (empty, current_voxel_count, removed_voxels) = carve_sphere(
             registry.model_mut(hit.ast_chain_id),
             hv.as_ivec3(),
             HIT_CARVE_RADIUS,
@@ -250,13 +250,6 @@ pub fn projectile(
                 sprite,
                 Aabb::empty(),
             ));
-        }
-
-        // Cap debris particles to avoid flooding the ECS with ~2000 entities per hit.
-        const MAX_PARTICLES: usize = 48;
-        if removed_voxels.len() > MAX_PARTICLES {
-            removed_voxels.partial_shuffle(&mut rng, MAX_PARTICLES);
-            removed_voxels.truncate(MAX_PARTICLES);
         }
 
         // Spawn one debris particle per carved voxel; group them for batch despawn.
