@@ -36,7 +36,7 @@ use crate::systems::{
     camera::camera_update_system,
     crystal::crystal_system,
     energy::{Energy, ENERGY_MAX},
-    lighting::{lighting_system, PointLights},
+    lighting::{lighting_system, PointLights, SpotLights},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
     particle::particle_system,
@@ -290,6 +290,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(GameState::TitleScreen);
     resources.insert(CameraMode::ThirdPerson);
     resources.insert(PointLights(Vec::new()));
+    resources.insert(SpotLights(Vec::new()));
 
     resources
 }

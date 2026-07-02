@@ -3,7 +3,6 @@ pub mod asteroid;
 pub mod camera;
 pub mod cannon;
 pub mod crystal;
-pub mod headlight;
 pub mod miner;
 pub mod newton_body;
 pub mod particle;

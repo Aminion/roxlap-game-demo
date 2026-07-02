@@ -1,14 +1,13 @@
 use glam::{DMat3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{opticast::OpticastSettings, Camera};
-use roxlap_render::{DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
+use roxlap_render::{DirectionalLight, DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
 
 use crate::{
     components::{
-        camera::CameraComponent, headlight::Headlight, newton_body::NewtonBody, particle::Particle,
-        sprite_id::Sprite,
+        camera::CameraComponent, newton_body::NewtonBody, particle::Particle, sprite_id::Sprite,
     },
-    systems::{lighting::PointLights, performance_info::PerformanceInfo},
+    systems::lighting::{PointLights, SpotLights},
     ScreenState,
 };
 
@@ -17,13 +16,13 @@ use crate::{
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
 #[read_component(Particle)]
-#[read_component(Headlight)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] scene: &mut roxlap_scene::Scene,
     #[resource] screen: &ScreenState,
-    #[resource] perf: &mut PerformanceInfo,
+    #[resource] perf: &mut crate::systems::performance_info::PerformanceInfo,
     #[resource] point_lights: &PointLights,
+    #[resource] spot_lights: &SpotLights,
     world: &SubWorld,
 ) {
     let fov_y_rad = screen.fov_y_rad;
@@ -51,12 +50,8 @@ pub fn render(
     // Snapshot work time before vsync blocks inside render.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
-    let sun = {
-        let mut q = <&Headlight>::query();
-        q.iter(world).next().and_then(|h| h.0)
-    };
-
     let settings = OpticastSettings::for_oracle_framebuffer(screen.width, screen.height);
+    let cam_fwd = camera.forward.map(|v| v as f32);
     let frame = FrameParams {
         settings: &settings,
         sky_color: 0,
@@ -70,8 +65,15 @@ pub fn render(
         draw_sprites: true,
         side_shades: [0; 6],
         lights: Some(LightRig {
-            sun,
+            sun: Some(DirectionalLight {
+                direction: cam_fwd,
+                color: [1.0; 3],
+                intensity: 0.25,
+                casts_shadow: false,
+            }),
             points: &point_lights.0,
+            spots: &spot_lights.0,
+            ambient: [0.25; 3],
             ..LightRig::default()
         }),
     };

@@ -13,7 +13,7 @@ use crate::sprites::{build_crystal, build_particle, build_projectile};
 use roxlap_render::{DynSpriteTransform, Kv6, Material, SceneRenderer, SpriteModelId};
 
 use crate::components::{
-    aabb::Aabb, camera::CameraComponent, cannon::Cannon, headlight::Headlight, miner::Miner,
+    aabb::Aabb, camera::CameraComponent, cannon::Cannon, miner::Miner,
     newton_body::NewtonBody, presence_position::PresencePosition, sprite_id::Sprite,
     thruster::ThrusterBank,
 };
@@ -303,7 +303,7 @@ fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model: &Mi
         renderer.add_sprite_instance_posed(miner_model.model_id, DynSpriteTransform::default());
     // CameraComponent is overwritten by camera_update_system before the first render,
     // so the initial values are placeholders.
-    let miner = world.push((
+    world.push((
         Miner,
         NewtonBody {
             mass: 1.0,
@@ -334,5 +334,4 @@ fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model: &Mi
         },
         Aabb::empty(),
     ));
-    world.entry(miner).unwrap().add_component(Headlight(None));
 }
