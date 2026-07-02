@@ -34,24 +34,40 @@ pub fn ui(
                 q.iter(world).next().expect("no CameraComponent entity").0
             };
             let half = screen_size / 2.0;
-            let td = autopilot_target.0.as_vec3();
-            let fwd = Vec3::from_array(camera.forward.map(|v| v as f32));
-            let target_screen = {
-                let f = td.dot(fwd);
-                if f > 0.01 {
-                    let r = td.dot(Vec3::from_array(camera.right.map(|v| v as f32)));
-                    let d = td.dot(Vec3::from_array(camera.down.map(|v| v as f32)));
-                    let focal = half.x;
-                    Some(egui::pos2(half.x + focal * r / f, half.y + focal * d / f))
-                } else {
-                    None
-                }
-            };
+            let target_screen = project_target(
+                autopilot_target.0.as_vec3(),
+                Vec3::from_array(camera.forward.map(|v| v as f32)),
+                Vec3::from_array(camera.right.map(|v| v as f32)),
+                Vec3::from_array(camera.down.map(|v| v as f32)),
+                half,
+            );
             draw_hud(egui_ctx, renderer, screen_size, target_screen, perf, energy);
         }
     }
 
     perf.work_timer = std::time::Instant::now();
+}
+
+/// Projects a world-space direction vector onto screen space.
+///
+/// `td` is the target direction relative to the camera origin (not normalised).
+/// Returns `None` when the target is behind or near-perpendicular to the camera.
+/// Focal length is set to `half.x` so the field-of-view is square horizontally.
+fn project_target(
+    td: Vec3,
+    fwd: Vec3,
+    right: Vec3,
+    down: Vec3,
+    half: egui::Vec2,
+) -> Option<egui::Pos2> {
+    let f = td.dot(fwd);
+    if f > 0.01 {
+        let r = td.dot(right);
+        let d = td.dot(down);
+        Some(egui::pos2(half.x + half.x * r / f, half.y + half.x * d / f))
+    } else {
+        None
+    }
 }
 
 fn draw_hud(
@@ -169,6 +185,60 @@ fn draw_game_over_screen(
         &full_output.textures_delta,
         full_output.pixels_per_point,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn half() -> egui::Vec2 {
+        egui::vec2(400.0, 300.0)
+    }
+
+    #[test]
+    fn project_target_on_axis_lands_at_center() {
+        // Target straight along the forward vector → screen centre.
+        let p = project_target(Vec3::NEG_Z, Vec3::NEG_Z, Vec3::X, Vec3::NEG_Y, half()).unwrap();
+        assert!((p.x - 400.0).abs() < 1e-4, "x={}", p.x);
+        assert!((p.y - 300.0).abs() < 1e-4, "y={}", p.y);
+    }
+
+    #[test]
+    fn project_target_behind_camera_returns_none() {
+        assert!(project_target(Vec3::Z, Vec3::NEG_Z, Vec3::X, Vec3::NEG_Y, half()).is_none());
+    }
+
+    #[test]
+    fn project_target_45_degrees_right() {
+        // Camera: fwd=+Z, right=+X, down=+Y.
+        // Target at 45° right: dir = normalize(Z+X) → f = r = 1/√2, d = 0.
+        // screen_x = half.x + half.x * (r/f) = 400 + 400*1 = 800, screen_y = 300.
+        let dir = Vec3::new(1.0, 0.0, 1.0).normalize();
+        let p = project_target(dir, Vec3::Z, Vec3::X, Vec3::Y, half()).unwrap();
+        assert!((p.x - 800.0).abs() < 1e-3, "x={}", p.x);
+        assert!((p.y - 300.0).abs() < 1e-3, "y={}", p.y);
+    }
+
+    #[test]
+    fn project_target_depth_scales_offset() {
+        // Doubling the distance halves the angular offset → same screen position.
+        let dir_near = Vec3::new(1.0, 0.0, 2.0); // closer
+        let dir_far = Vec3::new(2.0, 0.0, 4.0); // same direction, twice as far
+        let p_near = project_target(dir_near, Vec3::Z, Vec3::X, Vec3::Y, half()).unwrap();
+        let p_far = project_target(dir_far, Vec3::Z, Vec3::X, Vec3::Y, half()).unwrap();
+        assert!(
+            (p_near.x - p_far.x).abs() < 1e-4,
+            "x should be equal: {} vs {}",
+            p_near.x,
+            p_far.x
+        );
+        assert!(
+            (p_near.y - p_far.y).abs() < 1e-4,
+            "y should be equal: {} vs {}",
+            p_near.y,
+            p_far.y
+        );
+    }
 }
 
 fn draw_controls_screen(

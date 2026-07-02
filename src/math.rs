@@ -41,6 +41,38 @@ pub fn ray_aabb(ray_origin: DVec3, ray_dir: DVec3, min: DVec3, max: DVec3) -> Op
 mod tests {
     use super::*;
 
+    // ── splitmix64 ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn splitmix64_deterministic() {
+        assert_eq!(splitmix64(0), splitmix64(0));
+        assert_eq!(splitmix64(42), splitmix64(42));
+    }
+
+    #[test]
+    fn splitmix64_adjacent_seeds_differ() {
+        assert_ne!(splitmix64(0), splitmix64(1));
+        assert_ne!(splitmix64(100), splitmix64(101));
+    }
+
+    // ── hash_to_signed ────────────────────────────────────────────────────────
+
+    #[test]
+    fn hash_to_signed_range() {
+        for seed in [0u64, 1, 42, u64::MAX, u64::MAX / 2] {
+            let v = hash_to_signed(seed);
+            assert!(v >= -1.0 && v < 1.0, "out of range: {v} for seed {seed}");
+        }
+    }
+
+    #[test]
+    fn hash_to_signed_zero_maps_to_neg_one() {
+        // Top 24 bits of 0 are all zero → 0 / 2^23 - 1 = -1.0.
+        assert_eq!(hash_to_signed(0), -1.0);
+    }
+
+    // ── reject ────────────────────────────────────────────────────────────────
+
     #[test]
     fn reject_removes_parallel_component() {
         let v = DVec3::new(1.0, 2.0, 3.0);

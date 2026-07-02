@@ -13,9 +13,8 @@ use crate::sprites::{build_crystal, build_particle, build_projectile};
 use roxlap_render::{DynSpriteTransform, Kv6, Material, SceneRenderer, SpriteModelId};
 
 use crate::components::{
-    aabb::Aabb, camera::CameraComponent, cannon::Cannon, miner::Miner,
-    newton_body::NewtonBody, presence_position::PresencePosition, sprite_id::Sprite,
-    thruster::ThrusterBank,
+    aabb::Aabb, camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
+    presence_position::PresencePosition, sprite_id::Sprite, thruster::ThrusterBank,
 };
 
 /// Generate a 1024×512 equirectangular star panorama as RGBA bytes.
@@ -289,7 +288,6 @@ fn miner_orientation() -> DQuat {
         DVec3::new(-sp, 0.0, cp),
         DVec3::new(-cp, 0.0, -sp),
     ))
-    .normalize()
 }
 
 pub fn miner_initial_forward() -> DVec3 {
