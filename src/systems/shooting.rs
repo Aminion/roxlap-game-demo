@@ -1,6 +1,6 @@
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
-use roxlap_render::SceneRenderer;
+use roxlap_render::{BillboardLighting, SceneRenderer};
 
 use crate::{
     components::{cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile},
@@ -52,6 +52,9 @@ pub fn shooting(
     }
 
     let sprite = spawn_shared_instance(renderer, proj_model.model_id, proj_model.chain_id);
+    // Tracers glow: render the projectile at full intensity, ignoring the
+    // lighting rig (otherwise the shot darkens when facing away from the sun).
+    renderer.set_sprite_instance_lighting(sprite.instance_id, BillboardLighting::FullBright);
     commands.push((
         Projectile {
             lifetime: PROJECTILE_LIFETIME,

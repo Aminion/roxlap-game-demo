@@ -4,8 +4,8 @@ use rand::RngExt;
 use roxlap_gpu::SpriteModel;
 use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::{
-    EmitterShape, ParticleEmitterDef, ParticleSystem, SceneRenderer, SpawnMode, SpriteModelId,
-    VelocityDef, CARVE_DEBRIS_CAP,
+    BillboardLighting, EmitterShape, ParticleEmitterDef, ParticleSystem, SceneRenderer, SpawnMode,
+    SpriteModelId, VelocityDef, CARVE_DEBRIS_CAP,
 };
 
 use crate::{
@@ -241,6 +241,10 @@ pub fn projectile(
             let eject_speed = rng.random_range(0.5f64..2.0);
             let sprite =
                 spawn_shared_instance(renderer, crystal_model.model_id, crystal_model.chain_id);
+            // Crystals emit a red point light (lighting_system), so render their
+            // own voxels full-bright — a shaded light source reads as a bug.
+            renderer
+                .set_sprite_instance_lighting(sprite.instance_id, BillboardLighting::FullBright);
             commands.push((
                 CrystalMarker,
                 NewtonBody {

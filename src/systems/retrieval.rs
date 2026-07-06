@@ -8,7 +8,8 @@ use crate::{
     },
     math::ray_aabb,
     systems::energy::Energy,
-    Dt, Retrieving,
+    world::MinerModel,
+    Dt, RetrievalBeam, Retrieving,
 };
 
 const RETRIEVAL_ACCEL: f64 = 30.0;
@@ -25,7 +26,11 @@ pub fn retrieval(
     #[resource] retrieving: &Retrieving,
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
+    #[resource] beam: &mut RetrievalBeam,
+    #[resource] miner_model: &MinerModel,
 ) {
+    beam.0 = None;
+
     if !retrieving.0 {
         return;
     }
@@ -60,6 +65,10 @@ pub fn retrieval(
     let Some((target_entity, crystal_pos)) = target else {
         return;
     };
+
+    // Visual feedback: render_system draws this as a depth-tested overlay line.
+    let nose = miner_pos + forward * miner_model.nose_offset;
+    beam.0 = Some([nose, crystal_pos]);
 
     let to_ship = miner_pos - crystal_pos;
     if let Some(dir) = to_ship.try_normalize() {

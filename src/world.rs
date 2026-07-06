@@ -7,7 +7,7 @@ use rand::{
 };
 use roxlap_core::Camera;
 use roxlap_formats::kv6 as kv6_fmt;
-use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
+use roxlap_gpu::{build_sprite_model, SpriteModel, SpriteModelRegistry};
 
 use crate::sprites::{build_crystal, build_particle, build_projectile};
 use roxlap_render::{
@@ -94,48 +94,6 @@ pub fn generate_star_sky(seed: u64) -> (Vec<u8>, u32, u32) {
     (pixels, W, H)
 }
 
-/// Convert a `Kv6` into a dense-occupancy `SpriteModel` for the CPU registry.
-fn kv6_to_sprite_model(kv6: &kv6_fmt::Kv6) -> SpriteModel {
-    let [mx, my, mz] = [kv6.xsiz, kv6.ysiz, kv6.zsiz];
-    let occ_words = mz.div_ceil(32).max(1) as usize;
-    let cols = (mx * my) as usize;
-
-    let mut occupancy = vec![0u32; cols * occ_words];
-    let mut color_offsets = vec![0u32; cols + 1];
-    let mut colors: Vec<u32> = Vec::new();
-    let mut dirs: Vec<u32> = Vec::new();
-
-    let mut vi = 0usize;
-    for x in 0..mx as usize {
-        for y in 0..my as usize {
-            let col = x + y * mx as usize;
-            color_offsets[col] = colors.len() as u32;
-            let count = kv6.ylen[x][y] as usize;
-            for _ in 0..count {
-                let v = &kv6.voxels[vi];
-                vi += 1;
-                let z = v.z as usize;
-                occupancy[col * occ_words + z / 32] |= 1u32 << (z % 32);
-                colors.push(v.col);
-                dirs.push(v.dir as u32);
-            }
-        }
-    }
-    color_offsets[cols] = colors.len() as u32;
-
-    SpriteModel {
-        dims: [mx, my, mz],
-        occ_words_per_col: mz.div_ceil(32).max(1),
-        pivot: [kv6.xpiv, kv6.ypiv, kv6.zpiv],
-        occupancy,
-        colors,
-        dirs,
-        color_offsets,
-        materials: Vec::new(),
-        voxel_world_size: 1.0,
-    }
-}
-
 /// Convert a dense-occupancy `SpriteModel` into a surface-only `Kv6` for the renderer.
 pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
     let [mx, my, mz] = model.dims;
@@ -196,7 +154,7 @@ pub fn register_miner_model(
     let radius = kv6.xsiz.max(kv6.ysiz).max(kv6.zsiz) as f32 * 0.5;
     let nose_offset = kv6.zsiz as f64 * 0.5;
     let model_id = renderer.add_sprite_model(&kv6);
-    let chain_id = registry.add(kv6_to_sprite_model(&kv6));
+    let chain_id = registry.add(build_sprite_model(&kv6));
     MinerModel {
         model_id,
         chain_id,

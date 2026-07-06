@@ -2,13 +2,14 @@ use glam::{DMat3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{opticast::OpticastSettings, Camera};
 use roxlap_render::{
-    DirectionalLight, DynSpriteTransform, FrameParams, LightRig, Rgb, SceneRenderer,
+    DirectionalLight, DynSpriteTransform, FrameParams, LightRig, Line3, OverlayColor, Rgb,
+    SceneRenderer,
 };
 
 use crate::{
     components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::Sprite},
     systems::lighting::{PointLights, SpotLights},
-    ScreenState,
+    RetrievalBeam, ScreenState,
 };
 
 #[system]
@@ -22,6 +23,7 @@ pub fn render(
     #[resource] perf: &mut crate::systems::performance_info::PerformanceInfo,
     #[resource] point_lights: &PointLights,
     #[resource] spot_lights: &SpotLights,
+    #[resource] beam: &RetrievalBeam,
     world: &SubWorld,
 ) {
     let fov_y_rad = screen.fov_y_rad;
@@ -71,6 +73,21 @@ pub fn render(
         ..LightRig::default()
     });
     renderer.render(scene, &camera, &frame);
+
+    // Overlay lines land in the framebuffer between render and paint_egui,
+    // depth-tested against this frame's z-buffer.
+    if let Some([a, b]) = beam.0 {
+        renderer.draw_lines(
+            &camera,
+            &[Line3 {
+                a: a.to_array(),
+                b: b.to_array(),
+                color: OverlayColor(0xB0_40E0FF), // translucent tractor-beam cyan
+                width_px: 2.0,
+                depth_test: true,
+            }],
+        );
+    }
 }
 
 fn sprite_from_body(b: &NewtonBody, scale: Vec3) -> DynSpriteTransform {

@@ -112,7 +112,7 @@ pub fn build_asteroid(
     let mut mineral_rng = StdRng::seed_from_u64(mineral_seed);
     if collect_minerals && !mineral_candidates.is_empty() {
         let count = (mineral_rng.random_range(3u32..=5) as usize).min(mineral_candidates.len());
-        mineral_candidates.partial_shuffle(&mut mineral_rng, count);
+        let _ = mineral_candidates.partial_shuffle(&mut mineral_rng, count);
         mineral_candidates.truncate(count);
     } else {
         mineral_candidates.clear();

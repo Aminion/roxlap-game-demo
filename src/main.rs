@@ -74,6 +74,11 @@ pub struct Dt(pub f64);
 /// True while the right mouse button is held — activates the crystal retrieval beam.
 pub struct Retrieving(pub bool);
 
+/// World-space endpoints (nose → crystal) of the active retrieval beam,
+/// written by `retrieval_system` and drawn as an overlay line by
+/// `render_system`. `None` when the beam is off or has no target.
+pub struct RetrievalBeam(pub Option<[DVec3; 2]>);
+
 /// Accumulated mouse motion for the current frame, reset before each event poll.
 pub type MouseDelta = Vec2;
 
@@ -290,6 +295,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(ChunkQueue::new());
     resources.insert(Energy::new(ENERGY_MAX));
     resources.insert(Retrieving(false));
+    resources.insert(RetrievalBeam(None));
     resources.insert(GameState::TitleScreen);
     resources.insert(CameraMode::ThirdPerson);
     resources.insert(PointLights(Vec::new()));
@@ -385,6 +391,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<ChunkQueue>().unwrap().clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<Retrieving>().unwrap().0 = false;
+    resources.get_mut::<RetrievalBeam>().unwrap().0 = None;
     *resources.get_mut::<CameraMode>().unwrap() = CameraMode::ThirdPerson;
     resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();
     *resources.get_mut::<MouseDelta>().unwrap() = Vec2::ZERO;
