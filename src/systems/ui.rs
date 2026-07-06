@@ -1,6 +1,6 @@
 use glam::Vec3;
 use legion::{system, world::SubWorld, IntoQuery};
-use roxlap_render::{ParticleSystem, SceneRenderer};
+use roxlap_render::SceneRenderer;
 
 use crate::{
     components::camera::CameraComponent,
@@ -21,7 +21,6 @@ pub fn ui(
     #[resource] autopilot_target: &AutopilotTarget,
     #[resource] energy: &Energy,
     #[resource] perf: &mut PerformanceInfo,
-    #[resource] particle_sys: &ParticleSystem,
     world: &SubWorld,
 ) {
     let screen_size = egui::vec2(screen.width as f32, screen.height as f32);
@@ -42,15 +41,7 @@ pub fn ui(
                 Vec3::from_array(camera.down.map(|v| v as f32)),
                 half,
             );
-            draw_hud(
-                egui_ctx,
-                renderer,
-                screen_size,
-                target_screen,
-                perf,
-                energy,
-                particle_sys.particle_count(),
-            );
+            draw_hud(egui_ctx, renderer, screen_size, target_screen, perf, energy);
         }
     }
 
@@ -79,7 +70,6 @@ fn project_target(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_hud(
     egui_ctx: &egui::Context,
     renderer: &mut SceneRenderer,
@@ -87,7 +77,6 @@ fn draw_hud(
     target_screen: Option<egui::Pos2>,
     perf: &PerformanceInfo,
     energy: &Energy,
-    particle_count: usize,
 ) {
     let half = screen_size / 2.0;
 
@@ -106,7 +95,6 @@ fn draw_hud(
                     egui::Color32::YELLOW,
                     format!("WORK   {:.2} ms", perf.work_time_us_display as f64 / 1000.0),
                 );
-                ui.colored_label(egui::Color32::YELLOW, format!("PART   {particle_count}"));
             });
 
         egui::Area::new(egui::Id::new("hud_energy"))

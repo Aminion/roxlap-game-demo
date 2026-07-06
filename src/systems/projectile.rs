@@ -4,8 +4,8 @@ use rand::RngExt;
 use roxlap_gpu::SpriteModel;
 use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::{
-    BillboardLighting, EmitterShape, ParticleEmitterDef, ParticleSystem, SceneRenderer, SpawnMode,
-    SpriteModelId, VelocityDef, CARVE_DEBRIS_CAP,
+    BillboardLighting, EmitterShape, ParticleEmitterDef, ParticleSystem, Rgb, SceneRenderer,
+    SpawnMode, SpriteModelId, VelocityDef, CARVE_DEBRIS_CAP,
 };
 
 use crate::{
@@ -210,7 +210,7 @@ pub fn projectile(
             Err(_) => (vec![], vec![]),
         };
 
-        let (empty, current_voxel_count, removed_voxels) = carve_sphere(
+        let (empty, current_voxel_count, removed_colors) = carve_sphere(
             registry.model_mut(hit.ast_chain_id),
             hv.as_ivec3(),
             HIT_CARVE_RADIUS,
@@ -263,7 +263,7 @@ pub fn projectile(
         // ParticleSystem drives the simulation and sprite instances; a
         // transient burst emitter fires once and self-retires (draining
         // when its last particle dies) so emitters never accumulate.
-        let count = removed_voxels.len().min(CARVE_DEBRIS_CAP) as u32;
+        let count = removed_colors.len().min(CARVE_DEBRIS_CAP) as u32;
         if count > 0 {
             let carve_local = hv.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let carve_world = hit.ast_pos + hit.ast_orientation * carve_local;
@@ -274,6 +274,9 @@ pub fn projectile(
                 },
                 spawn: SpawnMode::Burst(count),
                 lifetime: 2.0..4.0,
+                // Debris wears the average color of the voxels just carved
+                // (multiplied over the particle model's gray gradient).
+                tint: average_rgb(&removed_colors),
                 velocity: VelocityDef {
                     base: hit.ast_vel.as_vec3().to_array(),
                     spread: 40.0,
@@ -324,8 +327,9 @@ pub fn projectile(
 }
 
 /// Carve a sphere of `radius` voxels centred on `center` in-place.
-/// Returns `(is_empty, remaining_count, removed_positions)`.
-fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32, Vec<IVec3>) {
+/// Returns `(is_empty, remaining_count, removed_colors)` — the colors of the
+/// carved voxels feed the debris-burst tint.
+fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32, Vec<u32>) {
     let r = radius as i32;
     let dims_i = IVec3::from(model.dims.map(|d| d as i32));
     let occ = model.occ_words_per_col as usize;
@@ -340,9 +344,20 @@ fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u
                 let c = center + d;
                 if c.cmpge(IVec3::ZERO).all() && c.cmplt(dims_i).all() {
                     let col = (c.x as u32 + c.y as u32 * model.dims[0]) as usize;
-                    let word_idx = col * occ + c.z as usize / 32;
-                    if (model.occupancy[word_idx] >> (c.z % 32)) & 1 == 1 {
-                        removed.push(c);
+                    let base = col * occ;
+                    let z_word = c.z as usize / 32;
+                    let z_bit = c.z % 32;
+                    if (model.occupancy[base + z_word] >> z_bit) & 1 == 1 {
+                        // Popcount-rank color lookup (colors sorted ascending z
+                        // per column), sampled before the voxel is removed.
+                        let col_start = model.color_offsets[col] as usize;
+                        let mut rank = 0usize;
+                        for w in 0..z_word {
+                            rank += model.occupancy[base + w].count_ones() as usize;
+                        }
+                        let below_mask = (1u32 << z_bit) - 1;
+                        rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
+                        removed.push(model.colors[col_start + rank]);
                     }
                     model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
                 }
@@ -351,6 +366,23 @@ fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u
     }
     let count = model.colors.len() as u32;
     (count == 0, count, removed)
+}
+
+/// Average the RGB channels of packed voxel colors, ignoring the high
+/// (KV6 visibility/flag) byte. Empty input averages to white — the
+/// emitter-tint no-op.
+fn average_rgb(colors: &[u32]) -> Rgb {
+    if colors.is_empty() {
+        return Rgb::WHITE;
+    }
+    let n = colors.len() as u32;
+    let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
+    for c in colors {
+        r += (c >> 16) & 0xff;
+        g += (c >> 8) & 0xff;
+        b += c & 0xff;
+    }
+    Rgb(((r / n) << 16) | ((g / n) << 8) | (b / n))
 }
 
 /// Return the subset of `minerals` whose voxel index lies within `radius` of `center`.
@@ -559,12 +591,32 @@ mod tests {
     fn carve_removes_voxels_in_sphere() {
         let mut model = make_5x5x5();
         // Radius 1 at (2,2,2): d²≤1 selects centre + 6 face neighbours = 7 voxels.
-        carve_sphere(&mut model, IVec3::new(2, 2, 2), 1);
+        let (_, _, removed_colors) = carve_sphere(&mut model, IVec3::new(2, 2, 2), 1);
         assert_eq!(
             model.colors.len(),
             118,
             "125 − 7 = 118 voxels should remain"
         );
+        assert_eq!(removed_colors.len(), 7, "one color per carved voxel");
+        assert!(
+            removed_colors.iter().all(|&c| c == 0xFF_FF_FF_FF),
+            "sampled colors match the solid-white model"
+        );
+    }
+
+    #[test]
+    fn average_rgb_masks_flag_byte_and_averages() {
+        use super::average_rgb;
+        use roxlap_render::Rgb;
+        // Empty input is the tint no-op.
+        assert_eq!(average_rgb(&[]), Rgb::WHITE);
+        // The high (KV6 visibility) byte is ignored; channels average.
+        assert_eq!(
+            average_rgb(&[0x80_FF_00_00, 0x00_00_00_00]),
+            Rgb(0x007F_0000)
+        );
+        // A uniform input averages to itself.
+        assert_eq!(average_rgb(&[0x80_10_20_30; 4]), Rgb(0x0010_2030));
     }
 
     #[test]
