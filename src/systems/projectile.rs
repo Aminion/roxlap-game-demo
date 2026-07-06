@@ -3,7 +3,10 @@ use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::RngExt;
 use roxlap_gpu::SpriteModel;
 use roxlap_gpu::SpriteModelRegistry;
-use roxlap_render::{SceneRenderer, SpriteModelId};
+use roxlap_render::{
+    EmitterShape, ParticleEmitterDef, ParticleSystem, SceneRenderer, SpawnMode, SpriteModelId,
+    VelocityDef, CARVE_DEBRIS_CAP,
+};
 
 use crate::{
     components::{
@@ -11,7 +14,6 @@ use crate::{
         asteroid::{AsteroidMinerals, AsteroidVoxelInfo},
         crystal::CrystalMarker,
         newton_body::NewtonBody,
-        particle::{Particle, ParticleGroup},
         projectile::Projectile,
         sprite_id::Sprite,
     },
@@ -47,6 +49,7 @@ pub fn projectile(
     #[resource] registry: &mut SpriteModelRegistry,
     #[resource] crystal_model: &CrystalModel,
     #[resource] particle_model: &ParticleModel,
+    #[resource] particle_sys: &mut ParticleSystem,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -252,44 +255,33 @@ pub fn projectile(
             ));
         }
 
-        // Spawn one debris particle per carved voxel; group them for batch despawn.
-        let mut particle_members: Vec<Entity> = Vec::with_capacity(removed_voxels.len());
-        for voxel in &removed_voxels {
-            let local_offset = voxel.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
-            let world_pos = hit.ast_pos + hit.ast_orientation * local_offset;
-            let dir = DVec3::new(
-                rng.random_range(-1.0f64..1.0),
-                rng.random_range(-1.0f64..1.0),
-                rng.random_range(-1.0f64..1.0),
-            )
-            .normalize_or_zero();
-            let speed = rng.random_range(0.1f64..40.0);
-            let sprite =
-                spawn_shared_instance(renderer, particle_model.model_id, particle_model.chain_id);
-            let entity = commands.push((
-                Particle {
-                    scale: glam::Vec3::splat(1.0 / PARTICLE_MODEL_DIM),
+        // Burst debris particles from the carve site. The renderer's
+        // ParticleSystem drives the simulation and sprite instances; a
+        // transient burst emitter fires once and self-retires (draining
+        // when its last particle dies) so emitters never accumulate.
+        let count = removed_voxels.len().min(CARVE_DEBRIS_CAP) as u32;
+        if count > 0 {
+            let carve_local = hv.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
+            let carve_world = hit.ast_pos + hit.ast_orientation * carve_local;
+            let id = particle_sys.add_emitter(ParticleEmitterDef {
+                pos: carve_world.as_vec3().to_array(),
+                shape: EmitterShape::Sphere {
+                    radius: HIT_CARVE_RADIUS as f32,
                 },
-                NewtonBody {
-                    mass: 0.001,
-                    pos: world_pos,
-                    vel: hit.ast_vel + dir * speed,
-                    orientation: DQuat::IDENTITY,
-                    angular_vel: DVec3::new(
-                        rng.random_range(-8.0f64..8.0),
-                        rng.random_range(-8.0f64..8.0),
-                        rng.random_range(-8.0f64..8.0),
-                    ),
+                spawn: SpawnMode::Burst(count),
+                lifetime: 2.0..4.0,
+                velocity: VelocityDef {
+                    base: hit.ast_vel.as_vec3().to_array(),
+                    spread: 40.0,
+                    ..VelocityDef::default()
                 },
-                sprite,
-            ));
-            particle_members.push(entity);
-        }
-        if !particle_members.is_empty() {
-            commands.push((ParticleGroup {
-                scale: glam::Vec3::splat(1.0 / PARTICLE_MODEL_DIM),
-                members: particle_members,
-            },));
+                gravity: [0.0, 0.0, 0.0],
+                scale: 1.0 / PARTICLE_MODEL_DIM,
+                scale_end: Some(0.0),
+                spin: -8.0..8.0,
+                ..ParticleEmitterDef::new(particle_model.model_id)
+            });
+            particle_sys.remove_emitter(id);
         }
 
         // Re-upload the carved model to the renderer.

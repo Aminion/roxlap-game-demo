@@ -5,7 +5,6 @@ pub mod cannon;
 pub mod crystal;
 pub mod miner;
 pub mod newton_body;
-pub mod particle;
 pub mod presence_position;
 pub mod projectile;
 pub mod sprite_id;

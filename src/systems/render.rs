@@ -1,12 +1,12 @@
 use glam::{DMat3, Vec3};
 use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_core::{opticast::OpticastSettings, Camera};
-use roxlap_render::{DirectionalLight, DynSpriteTransform, FrameParams, LightRig, SceneRenderer};
+use roxlap_render::{
+    DirectionalLight, DynSpriteTransform, FrameParams, LightRig, Rgb, SceneRenderer,
+};
 
 use crate::{
-    components::{
-        camera::CameraComponent, newton_body::NewtonBody, particle::Particle, sprite_id::Sprite,
-    },
+    components::{camera::CameraComponent, newton_body::NewtonBody, sprite_id::Sprite},
     systems::lighting::{PointLights, SpotLights},
     ScreenState,
 };
@@ -15,7 +15,6 @@ use crate::{
 #[read_component(CameraComponent)]
 #[read_component(Sprite)]
 #[read_component(NewtonBody)]
-#[read_component(Particle)]
 pub fn render(
     #[resource] renderer: &mut SceneRenderer,
     #[resource] scene: &mut roxlap_scene::Scene,
@@ -39,10 +38,9 @@ pub fn render(
     // Update all sprite instance transforms for this frame.
     {
         let mut updates: Vec<(roxlap_render::SpriteInstanceId, DynSpriteTransform)> = Vec::new();
-        let mut q = <(&Sprite, &NewtonBody, Option<&Particle>)>::query();
-        for (sprite, body, particle) in q.iter(world) {
-            let scale = particle.map(|p| p.scale).unwrap_or(Vec3::ONE);
-            updates.push((sprite.instance_id, sprite_from_body(body, scale)));
+        let mut q = <(&Sprite, &NewtonBody)>::query();
+        for (sprite, body) in q.iter(world) {
+            updates.push((sprite.instance_id, sprite_from_body(body, Vec3::ONE)));
         }
         renderer.set_sprite_instance_transforms(&updates);
     }
@@ -50,33 +48,28 @@ pub fn render(
     // Snapshot work time before vsync blocks inside render.
     perf.work_time_us_raw = perf.work_timer.elapsed().as_micros() as u64;
 
-    let settings = OpticastSettings::for_oracle_framebuffer(screen.width, screen.height);
+    let settings =
+        OpticastSettings::for_oracle_framebuffer(screen.width, screen.height).with_fov_y(fov_y_rad);
     let cam_fwd = camera.forward.map(|v| v as f32);
-    let frame = FrameParams {
-        settings: &settings,
-        sky_color: 0,
-        sky: None,
-        fog_color: 0,
-        fog_max_scan_dist: 0,
-        treat_z_max_as_air: false,
-        gpu_mip_scan_dist: 128.0,
-        gpu_max_outer_steps: 128,
-        gpu_fov_y_rad: fov_y_rad,
-        draw_sprites: true,
-        side_shades: [0; 6],
-        lights: Some(LightRig {
-            sun: Some(DirectionalLight {
-                direction: cam_fwd,
-                color: [1.0; 3],
-                intensity: 0.25,
-                casts_shadow: false,
-            }),
-            points: &point_lights.0,
-            spots: &spot_lights.0,
-            ambient: [0.25; 3],
-            ..LightRig::default()
+    let mut frame = FrameParams::new(&settings);
+    frame.sky_color = Rgb(0);
+    frame.fog_color = Rgb(0);
+    frame.fog_max_scan_dist = 0;
+    frame.treat_z_max_as_air = false;
+    frame.draw_sprites = true;
+    frame.side_shades = [0; 6];
+    frame.lights = Some(LightRig {
+        sun: Some(DirectionalLight {
+            direction: cam_fwd,
+            color: [1.0; 3],
+            intensity: 0.25,
+            casts_shadow: false,
         }),
-    };
+        points: &point_lights.0,
+        spots: &spot_lights.0,
+        ambient: [0.25; 3],
+        ..LightRig::default()
+    });
     renderer.render(scene, &camera, &frame);
 }
 

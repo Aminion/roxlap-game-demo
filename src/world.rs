@@ -10,7 +10,9 @@ use roxlap_formats::kv6 as kv6_fmt;
 use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
 
 use crate::sprites::{build_crystal, build_particle, build_projectile};
-use roxlap_render::{DynSpriteTransform, Kv6, Material, SceneRenderer, SpriteModelId};
+use roxlap_render::{
+    DynSpriteTransform, Kv6, Material, Rgb, SceneRenderer, SpriteModelId, VoxColor,
+};
 
 use crate::components::{
     aabb::Aabb, camera::CameraComponent, cannon::Cannon, miner::Miner, newton_body::NewtonBody,
@@ -153,7 +155,7 @@ pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
         }
         let below_mask = (1u32 << z_bit) - 1;
         rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
-        Some(model.colors[col_start + rank])
+        Some(VoxColor(model.colors[col_start + rank]))
     })
 }
 
@@ -169,7 +171,6 @@ pub struct CrystalModel {
 
 pub struct ParticleModel {
     pub model_id: SpriteModelId,
-    pub chain_id: u32,
 }
 
 pub struct MinerModel {
@@ -218,10 +219,11 @@ pub fn register_shared_sprites(
     let crystal_chain_id = registry.add(build_crystal());
     let crystal_kv6 = sprite_model_to_kv6(registry.model(crystal_chain_id));
     let crystal_model_id =
-        renderer.add_sprite_model_with_materials(&crystal_kv6, &[(0xFF_30_30, 1)]);
+        renderer.add_sprite_model_with_materials(&crystal_kv6, &[(Rgb(0xFF_30_30), 1)]);
 
-    let particle_chain_id = registry.add(build_particle());
-    let particle_kv6 = sprite_model_to_kv6(registry.model(particle_chain_id));
+    // Particles are driven directly by the renderer's ParticleSystem from the
+    // model id alone, so the CPU registry never needs a particle chain entry.
+    let particle_kv6 = sprite_model_to_kv6(&build_particle());
     let particle_model_id = renderer.add_sprite_model(&particle_kv6);
 
     (
@@ -235,7 +237,6 @@ pub fn register_shared_sprites(
         },
         ParticleModel {
             model_id: particle_model_id,
-            chain_id: particle_chain_id,
         },
     )
 }
@@ -246,7 +247,9 @@ pub fn spawn_shared_instance(
     model_id: SpriteModelId,
     chain_id: u32,
 ) -> Sprite {
-    let instance_id = renderer.add_sprite_instance_posed(model_id, DynSpriteTransform::default());
+    let instance_id = renderer
+        .add_sprite_instance_posed(model_id, DynSpriteTransform::default())
+        .expect("shared sprite model is live");
     Sprite {
         chain_id,
         model_id,
@@ -264,7 +267,9 @@ pub fn spawn_sprite(
     let chain_id = registry.add(model);
     let kv6 = sprite_model_to_kv6(registry.model(chain_id));
     let model_id = renderer.add_sprite_model(&kv6);
-    let instance_id = renderer.add_sprite_instance_posed(model_id, DynSpriteTransform::default());
+    let instance_id = renderer
+        .add_sprite_instance_posed(model_id, DynSpriteTransform::default())
+        .expect("freshly registered sprite model is live");
     Sprite {
         chain_id,
         model_id,
@@ -297,8 +302,9 @@ pub fn miner_initial_forward() -> DVec3 {
 fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model: &MinerModel) {
     let orientation = miner_orientation();
     let pos = DVec3::new(-MINER_SPAWN_OFFSET_X, 0.0, -MINER_SPAWN_HEIGHT);
-    let instance_id =
-        renderer.add_sprite_instance_posed(miner_model.model_id, DynSpriteTransform::default());
+    let instance_id = renderer
+        .add_sprite_instance_posed(miner_model.model_id, DynSpriteTransform::default())
+        .expect("miner sprite model is live");
     // CameraComponent is overwritten by camera_update_system before the first render,
     // so the initial values are placeholders.
     world.push((

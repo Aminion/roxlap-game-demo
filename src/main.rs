@@ -19,7 +19,9 @@ use raw_window_handle::{
     WindowHandle,
 };
 use roxlap_gpu::SpriteModelRegistry;
-use roxlap_render::{GpuRendererSettings, RenderOptions, SceneRenderer, SpriteSet};
+use roxlap_render::{
+    BackendPreference, GpuRendererSettings, ParticleSystem, RenderOptions, SceneRenderer, SpriteSet,
+};
 use sdl2::{
     event::{Event, WindowEvent},
     keyboard::Scancode,
@@ -222,7 +224,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
         handle,
         (INITIAL_WINDOW_WIDTH, INITIAL_WINDOW_HEIGHT),
         &RenderOptions {
-            want_gpu: true,
+            backend: BackendPreference::PreferGpu,
             gpu: GpuRendererSettings {
                 uncapped_present: false,
                 ..GpuRendererSettings::default()
@@ -279,6 +281,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(projectile_model);
     resources.insert(crystal_model);
     resources.insert(particle_model);
+    resources.insert(ParticleSystem::new(WORLD_SEED));
     resources.insert(miner_model);
     resources.insert(VisitedChunks(HashSet::new()));
     resources.insert(LoadedAsteroids(HashSet::new()));
@@ -361,6 +364,10 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     *resources.get_mut::<CrystalModel>().unwrap() = crystal;
     *resources.get_mut::<ParticleModel>().unwrap() = particle;
     *resources.get_mut::<MinerModel>().unwrap() = miner_model;
+
+    // The renderer's sprite registry was reset above, so any live particles
+    // reference stale instance handles — start the particle system fresh.
+    *resources.get_mut::<ParticleSystem>().unwrap() = ParticleSystem::new(WORLD_SEED);
 
     // Rebuild ECS world with a fresh miner.
     *world = World::default();
