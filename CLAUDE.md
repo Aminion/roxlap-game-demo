@@ -5,25 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Build
 cargo build
-
-# Build release
-cargo build --release
-
-# Run
 cargo run
-
-# Check (fast, no codegen)
 cargo check
-
-# Lint
 cargo clippy
-
-# Format
 cargo fmt
-
-# Run with logging
 RUST_LOG=info cargo run
 ```
 
@@ -31,14 +17,21 @@ The dev environment uses Nix (`shell.nix`) with a nightly Rust toolchain and SDL
 
 ## Architecture
 
-This is a Rust game demo using the **Legion ECS** framework with a fixed set of systems executed in order each frame. The entry point is `src/main.rs`, which owns the SDL2 window, the game loop, and all resource initialization.
+Rust game demo using **Legion ECS**. Entry point: `src/main.rs`. Renderer: `SceneRenderer` (roxlap-render 0.23). Reference: https://ncrashed.github.io/roxlap/
 
 ### Coordinate conventions
 
-- Voxlap world space is **z-down**: small z = up, large z = down
+- World space is **z-down**: small z = up, large z = down
 - Body-local axes: **−Z = forward (nose)**, **+X = right**, **+Y = up**
-- The `Camera` struct voxlap expects uses `forward`, `right`, and `down` (not `up`); the render system negates the body's `+Y` to produce `down`
-- `VSID = 32` sets the voxel world grid dimension (32×32 columns)
+- Camera uses `forward`, `right`, `down`; render system sets `down = −body_up`
+- Asteroid voxel grid: `ASTEROID_VOXEL_SIZE = 16` (`src/sprites.rs`)
+
+### Key invariants
+
+- `NewtonBody.orientation` must stay unit-length; `integrate_rotation` normalizes every tick
+- OBB→AABB: project half-extents through **rows** of |R|, not columns
+- `from_mat3` requires det = +1; silently returns non-unit quat for left-handed input
+- Thruster commands are in body space; autopilot converts via `orientation.inverse() *`
 
 ## Before committing
 
