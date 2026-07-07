@@ -32,11 +32,7 @@ fn obb_to_aabb(local_min: DVec3, local_max: DVec3, pos: DVec3, orientation: DQua
     let center = pos + orientation * ((local_min + local_max) * 0.5);
     // world_half_i = Σ_j |R_ij|·half_j — rows of |R|, not columns: columns
     // would compute |Rᵀ|·half, which underestimates for asymmetric rotations.
-    let world_half = DVec3::new(
-        mat.row(0).abs().dot(half),
-        mat.row(1).abs().dot(half),
-        mat.row(2).abs().dot(half),
-    );
+    let world_half = mat.abs() * half;
     Aabb {
         min: center - world_half,
         max: center + world_half,

@@ -37,7 +37,7 @@ pub fn shooting(
         }
         energy.current -= SHOT_COST;
         cannon.cooldown = CANNON_COOLDOWN;
-        let fwd = (body.orientation * DVec3::NEG_Z).normalize();
+        let fwd = body.orientation * DVec3::NEG_Z;
         (body.pos, body.vel, body.mass, fwd)
     };
 
