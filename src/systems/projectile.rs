@@ -1,6 +1,6 @@
 use glam::{DQuat, DVec3, IVec3, UVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
-use rand::RngExt;
+use rand::{rngs::StdRng, RngExt, SeedableRng};
 use roxlap_gpu::SpriteModel;
 use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::{
@@ -17,7 +17,8 @@ use crate::{
         projectile::Projectile,
         sprite_id::Sprite,
     },
-    generation::chunks::LoadedAsteroids,
+    generation::chunks::{LoadedAsteroids, WorldSeed},
+    math::splitmix64,
     systems::{
         particle::PARTICLE_MODEL_DIM,
         sprite::{perform_despawn, spawn_shared_instance, sprite_model_to_kv6},
@@ -54,6 +55,7 @@ pub fn projectile(
     #[resource] crystal_model: &CrystalModel,
     #[resource] particle_model: &ParticleModel,
     #[resource] particle_sys: &mut ParticleSystem,
+    #[resource] world_seed: &WorldSeed,
 ) {
     // Collect projectile states and tick lifetimes.
     struct ProjState {
@@ -232,7 +234,10 @@ pub fn projectile(
             &hit_minerals
         };
 
-        let mut rng = rand::rng();
+        let hv_packed = (hv.x as u64)
+            | ((hv.y as u64) << 20)
+            | ((hv.z as u64) << 40);
+        let mut rng = StdRng::seed_from_u64(splitmix64(world_seed.0 ^ hv_packed));
         for &p in crystals_to_spawn {
             let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
