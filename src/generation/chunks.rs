@@ -1,6 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use glam::{DVec3, IVec3, UVec3};
+use legion::Entity;
 use roxlap_cavegen::PerlinNoise3D;
 use roxlap_gpu::SpriteModel;
 
@@ -8,6 +9,76 @@ use crate::{
     math::{hash_to_signed, splitmix64},
     sprites::build_asteroid,
 };
+
+/// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
+pub struct VisitedChunks(pub HashSet<IVec3>);
+
+/// Set of asteroid entity IDs currently loaded within the presence area.
+pub struct LoadedAsteroids(pub HashSet<Entity>);
+
+/// Seed for all procedural world generation (chunk density noise, asteroid properties).
+pub struct WorldSeed(pub u64);
+
+/// Tombstoned sprite models accumulated since the last `compact_sprite_models` call.
+/// Compact fires when the chunk generation queue empties (or on threshold revisits
+/// with pending tombstones), so its cost lands on a frame already paying generation.
+pub struct PendingCompact(pub u32);
+
+/// FIFO queue of chunk coordinates waiting to be generated, with an O(1) membership set.
+/// Both structures are kept in sync automatically via the `enqueue`/`pop_front`/`drain_front`
+/// methods, eliminating the manual invariant previously split across two separate resources.
+pub struct ChunkQueue {
+    queue: VecDeque<IVec3>,
+    queued: HashSet<IVec3>,
+}
+
+impl ChunkQueue {
+    pub fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+            queued: HashSet::new(),
+        }
+    }
+
+    /// Push `chunk` unless it is already queued. O(1) duplicate check.
+    pub fn enqueue(&mut self, chunk: IVec3) {
+        if self.queued.insert(chunk) {
+            self.queue.push_back(chunk);
+        }
+    }
+
+    pub fn pop_front(&mut self) -> Option<IVec3> {
+        let chunk = self.queue.pop_front()?;
+        self.queued.remove(&chunk);
+        Some(chunk)
+    }
+
+    pub fn front(&self) -> Option<&IVec3> {
+        self.queue.front()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    /// Drain the first `n` entries and remove them from the queued set.
+    pub fn drain_front(&mut self, n: usize) -> Vec<IVec3> {
+        let chunks: Vec<IVec3> = self.queue.drain(..n).collect();
+        for &c in &chunks {
+            self.queued.remove(&c);
+        }
+        chunks
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
+        self.queued.clear();
+    }
+}
 
 /// Side length of one chunk in world units.
 pub const CHUNK_SIZE: i32 = 64;

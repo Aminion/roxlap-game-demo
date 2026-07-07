@@ -17,9 +17,13 @@ use crate::{
         projectile::Projectile,
         sprite_id::Sprite,
     },
-    systems::{particle::PARTICLE_MODEL_DIM, sprite::perform_despawn},
-    world::{spawn_shared_instance, sprite_model_to_kv6, CrystalModel, ParticleModel},
-    Dt, LoadedAsteroids,
+    generation::chunks::LoadedAsteroids,
+    systems::{
+        particle::PARTICLE_MODEL_DIM,
+        sprite::{perform_despawn, spawn_shared_instance, sprite_model_to_kv6},
+    },
+    world::{CrystalModel, ParticleModel},
+    Dt,
 };
 
 /// Voxel radius of the crater carved on each hit.

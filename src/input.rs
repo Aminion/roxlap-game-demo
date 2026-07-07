@@ -11,6 +11,8 @@ pub enum PlayerInput {
     ThrustForward,
     ThrustBackward,
     Damping,
+    Fire,
+    Retrieve,
 }
 
 impl PlayerInput {

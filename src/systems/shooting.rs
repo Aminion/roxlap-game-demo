@@ -1,11 +1,20 @@
+use std::collections::HashSet;
+
 use glam::{DQuat, DVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
 use roxlap_render::{BillboardLighting, SceneRenderer};
 
 use crate::{
-    components::{cannon::Cannon, miner::Miner, newton_body::NewtonBody, projectile::Projectile},
-    systems::energy::{Energy, SHOT_COST},
-    world::{spawn_shared_instance, MinerModel, ProjectileModel},
+    components::{
+        cannon::Cannon,
+        energy::{Energy, SHOT_COST},
+        miner::Miner,
+        newton_body::NewtonBody,
+        projectile::Projectile,
+    },
+    input::PlayerInput,
+    systems::sprite::spawn_shared_instance,
+    world::{MinerModel, ProjectileModel},
     Dt,
 };
 
@@ -25,6 +34,7 @@ pub fn shooting(
     #[resource] proj_model: &ProjectileModel,
     #[resource] miner_model: &MinerModel,
     #[resource] energy: &mut Energy,
+    #[resource] inputs: &HashSet<PlayerInput>,
     #[resource] dt: &Dt,
 ) {
     // Phase 1: check firing conditions and capture miner state.
@@ -32,7 +42,10 @@ pub fn shooting(
         let mut q = <(&Miner, &mut NewtonBody, &mut Cannon)>::query();
         let (_, body, cannon) = q.iter_mut(world).next().expect("miner missing");
         cannon.cooldown = (cannon.cooldown - dt.0).max(0.0);
-        if !cannon.firing || cannon.cooldown > 0.0 || energy.current < SHOT_COST {
+        if !inputs.contains(&PlayerInput::Fire)
+            || cannon.cooldown > 0.0
+            || energy.current < SHOT_COST
+        {
             return;
         }
         energy.current -= SHOT_COST;

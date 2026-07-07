@@ -2,8 +2,7 @@ use glam::DVec3;
 use legion::{world::SubWorld, *};
 
 use crate::{
-    components::{miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank},
-    systems::energy::Energy,
+    components::{energy::Energy, miner::Miner, newton_body::NewtonBody, thruster::ThrusterBank},
     Dt,
 };
 

@@ -1,15 +1,17 @@
+use std::collections::HashSet;
+
 use glam::DVec3;
 use legion::{world::SubWorld, *};
 
 use crate::{
     components::{
-        aabb::Aabb, camera::CameraComponent, crystal::CrystalMarker, miner::Miner,
+        aabb::Aabb, camera::CameraComponent, crystal::CrystalMarker, energy::Energy, miner::Miner,
         newton_body::NewtonBody,
     },
+    input::PlayerInput,
     math::ray_aabb,
-    systems::energy::Energy,
     world::MinerModel,
-    Dt, RetrievalBeam, Retrieving,
+    Dt, RetrievalBeam,
 };
 
 const RETRIEVAL_ACCEL: f64 = 30.0;
@@ -23,7 +25,7 @@ const RETRIEVAL_ENERGY_DRAIN: f64 = 5.0;
 #[write_component(NewtonBody)]
 pub fn retrieval(
     world: &mut SubWorld,
-    #[resource] retrieving: &Retrieving,
+    #[resource] inputs: &HashSet<PlayerInput>,
     #[resource] energy: &mut Energy,
     #[resource] dt: &Dt,
     #[resource] beam: &mut RetrievalBeam,
@@ -31,7 +33,7 @@ pub fn retrieval(
 ) {
     beam.0 = None;
 
-    if !retrieving.0 {
+    if !inputs.contains(&PlayerInput::Retrieve) {
         return;
     }
 

@@ -15,11 +15,10 @@ use crate::{
         sprite_id::Sprite,
     },
     generation::chunks::{
-        compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, CHUNK_SIZE, LOAD_RADIUS,
+        compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, ChunkQueue,
+        LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed, CHUNK_SIZE, LOAD_RADIUS,
     },
-    systems::sprite::perform_despawn,
-    world::spawn_sprite,
-    ChunkQueue, LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed,
+    systems::sprite::{perform_despawn, spawn_sprite},
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);

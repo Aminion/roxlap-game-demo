@@ -3,14 +3,15 @@ use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{
-        aabb::Aabb, crystal::CrystalMarker, miner::Miner, newton_body::NewtonBody,
+        aabb::Aabb,
+        crystal::CrystalMarker,
+        energy::{Energy, ENERGY_MAX},
+        miner::Miner,
+        newton_body::NewtonBody,
         sprite_id::Sprite,
     },
     generation::chunks::{world_to_chunk, LOAD_RADIUS},
-    systems::{
-        energy::{Energy, ENERGY_MAX},
-        sprite::perform_despawn,
-    },
+    systems::sprite::perform_despawn,
 };
 
 pub const CRYSTAL_PICKUP_ENERGY: f64 = 25.0;

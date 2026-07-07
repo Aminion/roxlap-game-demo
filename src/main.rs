@@ -8,12 +8,12 @@ mod systems;
 mod test_utils;
 mod world;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use glam::{DVec3, IVec3, Vec2};
-use legion::{Resources, Schedule, World, *};
+use glam::{DVec3, Vec2};
+use legion::{Resources, Schedule, World};
 use raw_window_handle::{
     DisplayHandle, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     WindowHandle,
@@ -30,14 +30,18 @@ use sdl2::{
     EventPump,
 };
 
-use crate::components::{cannon::Cannon, miner::Miner};
+use crate::components::energy::{Energy, ENERGY_MAX};
+use crate::generation::{
+    chunks::{ChunkQueue, LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed},
+    generate_star_sky,
+};
 use crate::input::PlayerInput;
 use crate::systems::{
     aabb::aabb_update_system,
     autopilot::autopilot_system,
     camera::camera_update_system,
     crystal::crystal_system,
-    energy::{Energy, ENERGY_MAX},
+    game_state::game_state_update_system,
     lighting::{lighting_system, PointLights, SpotLights},
     miner_input::miner_input_system,
     newton_body::newton_body_system,
@@ -52,8 +56,8 @@ use crate::systems::{
     ui::ui_system,
 };
 use crate::world::{
-    generate_star_sky, miner_initial_forward, populate_world, register_miner_model,
-    register_shared_sprites, CrystalModel, MinerModel, ParticleModel, ProjectileModel,
+    miner_initial_forward, populate_world, register_miner_model, register_shared_sprites,
+    CrystalModel, MinerModel, ParticleModel, ProjectileModel,
 };
 
 const INITIAL_WINDOW_WIDTH: u32 = 1280;
@@ -70,9 +74,6 @@ pub struct ScreenState {
 pub struct AutopilotTarget(pub DVec3);
 
 pub struct Dt(pub f64);
-
-/// True while the right mouse button is held — activates the crystal retrieval beam.
-pub struct Retrieving(pub bool);
 
 /// World-space endpoints (nose → crystal) of the active retrieval beam,
 /// written by `retrieval_system` and drawn as an overlay line by
@@ -93,78 +94,6 @@ pub enum GameState {
 pub enum CameraMode {
     FirstPerson,
     ThirdPerson,
-}
-
-// --- GPU resources ---
-
-/// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
-pub struct VisitedChunks(pub HashSet<IVec3>);
-
-/// Set of asteroid entity IDs currently loaded within the presence area.
-pub struct LoadedAsteroids(pub HashSet<Entity>);
-
-/// Seed for all procedural world generation (chunk density noise, asteroid properties).
-pub struct WorldSeed(pub u64);
-
-/// Tombstoned sprite models accumulated since the last `compact_sprite_models` call.
-/// Compact fires when the chunk generation queue empties (or on threshold revisits
-/// with pending tombstones), so its cost lands on a frame already paying generation.
-pub struct PendingCompact(pub u32);
-
-/// FIFO queue of chunk coordinates waiting to be generated, with an O(1) membership set.
-/// Both structures are kept in sync automatically via the `enqueue`/`pop_front`/`drain_front`
-/// methods, eliminating the manual invariant previously split across two separate resources.
-pub struct ChunkQueue {
-    queue: VecDeque<IVec3>,
-    queued: HashSet<IVec3>,
-}
-
-impl ChunkQueue {
-    pub fn new() -> Self {
-        Self {
-            queue: VecDeque::new(),
-            queued: HashSet::new(),
-        }
-    }
-
-    /// Push `chunk` unless it is already queued. O(1) duplicate check.
-    pub fn enqueue(&mut self, chunk: IVec3) {
-        if self.queued.insert(chunk) {
-            self.queue.push_back(chunk);
-        }
-    }
-
-    pub fn pop_front(&mut self) -> Option<IVec3> {
-        let chunk = self.queue.pop_front()?;
-        self.queued.remove(&chunk);
-        Some(chunk)
-    }
-
-    pub fn front(&self) -> Option<&IVec3> {
-        self.queue.front()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.queue.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.queue.len()
-    }
-
-    /// Drain the first `n` entries and remove them from the queued set.
-    pub fn drain_front(&mut self, n: usize) -> Vec<IVec3> {
-        let chunks: Vec<IVec3> = self.queue.drain(..n).collect();
-        for &c in &chunks {
-            self.queued.remove(&c);
-        }
-        chunks
-    }
-
-    pub fn clear(&mut self) {
-        self.queue.clear();
-        self.queued.clear();
-    }
 }
 
 // --- SDL2 window handle wrapper for wgpu ---
@@ -294,7 +223,6 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(PendingCompact(0));
     resources.insert(ChunkQueue::new());
     resources.insert(Energy::new(ENERGY_MAX));
-    resources.insert(Retrieving(false));
     resources.insert(RetrievalBeam(None));
     resources.insert(GameState::TitleScreen);
     resources.insert(CameraMode::ThirdPerson);
@@ -321,6 +249,7 @@ fn build_schedule() -> Schedule {
         .add_system(projectile_system())
         .add_system(crystal_system())
         .add_system(particle_system())
+        .add_system(game_state_update_system())
         // Flush so despawned entities are removed before render.
         // lighting_system runs here so crystal lights reflect post-despawn state.
         .flush()
@@ -390,7 +319,6 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<PendingCompact>().unwrap().0 = 0;
     resources.get_mut::<ChunkQueue>().unwrap().clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
-    resources.get_mut::<Retrieving>().unwrap().0 = false;
     resources.get_mut::<RetrievalBeam>().unwrap().0 = None;
     *resources.get_mut::<CameraMode>().unwrap() = CameraMode::ThirdPerson;
     resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();
@@ -490,31 +418,37 @@ fn main() {
                     mouse_btn: MouseButton::Left,
                     ..
                 } if playing => {
-                    let mut q = <(&Miner, &mut Cannon)>::query();
-                    for (_, canon) in q.iter_mut(&mut world) {
-                        canon.firing = true;
-                    }
+                    resources
+                        .get_mut::<HashSet<PlayerInput>>()
+                        .unwrap()
+                        .insert(PlayerInput::Fire);
                 }
                 Event::MouseButtonUp {
                     mouse_btn: MouseButton::Left,
                     ..
                 } => {
-                    let mut q = <(&Miner, &mut Cannon)>::query();
-                    for (_, canon) in q.iter_mut(&mut world) {
-                        canon.firing = false;
-                    }
+                    resources
+                        .get_mut::<HashSet<PlayerInput>>()
+                        .unwrap()
+                        .remove(&PlayerInput::Fire);
                 }
                 Event::MouseButtonDown {
                     mouse_btn: MouseButton::Right,
                     ..
                 } if playing => {
-                    resources.get_mut::<Retrieving>().unwrap().0 = true;
+                    resources
+                        .get_mut::<HashSet<PlayerInput>>()
+                        .unwrap()
+                        .insert(PlayerInput::Retrieve);
                 }
                 Event::MouseButtonUp {
                     mouse_btn: MouseButton::Right,
                     ..
                 } => {
-                    resources.get_mut::<Retrieving>().unwrap().0 = false;
+                    resources
+                        .get_mut::<HashSet<PlayerInput>>()
+                        .unwrap()
+                        .remove(&PlayerInput::Retrieve);
                 }
                 Event::MouseMotion { xrel, yrel, .. } if playing => {
                     *resources.get_mut::<MouseDelta>().unwrap() +=
@@ -542,12 +476,5 @@ fn main() {
         }
 
         schedule.execute(&mut world, &mut resources);
-
-        {
-            let is_playing = matches!(*resources.get::<GameState>().unwrap(), GameState::Playing);
-            if is_playing && resources.get::<Energy>().unwrap().current <= 0.0 {
-                *resources.get_mut::<GameState>().unwrap() = GameState::GameOver;
-            }
-        }
     }
 }

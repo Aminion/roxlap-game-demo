@@ -1,5 +1,6 @@
 use legion::{systems::CommandBuffer, world::SubWorld, Entity, EntityStore};
-use roxlap_render::SceneRenderer;
+use roxlap_gpu::{SpriteModel, SpriteModelRegistry};
+use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer, SpriteModelId, VoxColor};
 
 use crate::components::sprite_id::Sprite;
 
@@ -25,4 +26,64 @@ pub fn perform_despawn(
         renderer.remove_sprite_model(sprite.model_id);
     }
     commands.remove(entity);
+}
+
+/// Convert a dense-occupancy `SpriteModel` into a surface-only `Kv6` for the renderer.
+pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
+    let [mx, my, mz] = model.dims;
+    let occ = model.occ_words_per_col as usize;
+    Kv6::from_fn_shaded(mx, my, mz, |x, y, z| {
+        let col = (x + y * mx) as usize;
+        let base = col * occ;
+        let z_word = z as usize / 32;
+        let z_bit = z % 32;
+        if (model.occupancy[base + z_word] >> z_bit) & 1 == 0 {
+            return None;
+        }
+        let col_start = model.color_offsets[col] as usize;
+        let mut rank = 0usize;
+        for w in 0..z_word {
+            rank += model.occupancy[base + w].count_ones() as usize;
+        }
+        let below_mask = (1u32 << z_bit) - 1;
+        rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
+        Some(VoxColor(model.colors[col_start + rank]))
+    })
+}
+
+/// Spawn an additional instance of a pre-registered shared model (no model ownership).
+pub fn spawn_shared_instance(
+    renderer: &mut SceneRenderer,
+    model_id: SpriteModelId,
+    chain_id: u32,
+) -> Sprite {
+    let instance_id = renderer
+        .add_sprite_instance_posed(model_id, DynSpriteTransform::default())
+        .expect("shared sprite model is live");
+    Sprite {
+        chain_id,
+        model_id,
+        instance_id,
+        owns_model: false,
+    }
+}
+
+/// Register a sprite model with both the CPU registry and the renderer.
+pub fn spawn_sprite(
+    renderer: &mut SceneRenderer,
+    registry: &mut SpriteModelRegistry,
+    model: SpriteModel,
+) -> Sprite {
+    let chain_id = registry.add(model);
+    let kv6 = sprite_model_to_kv6(registry.model(chain_id));
+    let model_id = renderer.add_sprite_model(&kv6);
+    let instance_id = renderer
+        .add_sprite_instance_posed(model_id, DynSpriteTransform::default())
+        .expect("freshly registered sprite model is live");
+    Sprite {
+        chain_id,
+        model_id,
+        instance_id,
+        owns_model: true,
+    }
 }

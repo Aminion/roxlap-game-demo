@@ -108,6 +108,8 @@ mod tests {
             Just(PlayerInput::ThrustForward),
             Just(PlayerInput::ThrustBackward),
             Just(PlayerInput::Damping),
+            Just(PlayerInput::Fire),
+            Just(PlayerInput::Retrieve),
         ]
     }
 

@@ -2,7 +2,7 @@ pub mod aabb;
 pub mod autopilot;
 pub mod camera;
 pub mod crystal;
-pub mod energy;
+pub mod game_state;
 pub mod lighting;
 pub mod miner_input;
 pub mod newton_body;

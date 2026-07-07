@@ -3,11 +3,11 @@ use legion::{system, world::SubWorld, IntoQuery};
 use roxlap_render::SceneRenderer;
 
 use crate::{
-    components::camera::CameraComponent,
-    systems::{
+    components::{
+        camera::CameraComponent,
         energy::{Energy, ENERGY_LOW, ENERGY_MED},
-        performance_info::PerformanceInfo,
     },
+    systems::performance_info::PerformanceInfo,
     AutopilotTarget, GameState, ScreenState,
 };
 
