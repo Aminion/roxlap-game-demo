@@ -244,11 +244,13 @@ const MINER_PITCH: f64 = 0.8;
 const MINER_SPAWN_OFFSET_X: f64 = 70.0;
 const MINER_SPAWN_HEIGHT: f64 = 100.0;
 
+/// Spawn attitude: right = world +Y, nose pitched MINER_PITCH below the
+/// horizon toward +X (world is z-down, so forward gains a +z component).
 fn miner_orientation() -> DQuat {
     let (sp, cp) = (MINER_PITCH.sin(), MINER_PITCH.cos());
     DQuat::from_mat3(&DMat3::from_cols(
         DVec3::Y,
-        DVec3::new(-sp, 0.0, cp),
+        DVec3::new(sp, 0.0, -cp),
         DVec3::new(-cp, 0.0, -sp),
     ))
 }
@@ -296,4 +298,39 @@ fn spawn_miner(world: &mut World, renderer: &mut SceneRenderer, miner_model: &Mi
         },
         Aabb::empty(),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn miner_orientation_is_unit_quaternion() {
+        // from_mat3 on a non-rotation (det ≠ +1) basis silently yields a
+        // non-unit quaternion; this catches a left-handed column set.
+        let q = miner_orientation();
+        assert!(
+            (q.length() - 1.0).abs() < 1e-12,
+            "|q| = {} — basis matrix is not a proper rotation",
+            q.length()
+        );
+    }
+
+    #[test]
+    fn miner_orientation_matches_basis_columns() {
+        let (sp, cp) = (MINER_PITCH.sin(), MINER_PITCH.cos());
+        let q = miner_orientation();
+        let right = q * DVec3::X;
+        let up = q * DVec3::Y;
+        let fwd = q * DVec3::NEG_Z;
+        assert!((right - DVec3::Y).length() < 1e-12, "right: {right:?}");
+        assert!(
+            (up - DVec3::new(sp, 0.0, -cp)).length() < 1e-12,
+            "up: {up:?}"
+        );
+        assert!(
+            (fwd - DVec3::new(cp, 0.0, sp)).length() < 1e-12,
+            "forward: {fwd:?}"
+        );
+    }
 }

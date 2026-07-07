@@ -30,10 +30,12 @@ fn obb_to_aabb(local_min: DVec3, local_max: DVec3, pos: DVec3, orientation: DQua
     let mat = DMat3::from_quat(orientation);
     let half = (local_max - local_min) * 0.5;
     let center = pos + orientation * ((local_min + local_max) * 0.5);
+    // world_half_i = Σ_j |R_ij|·half_j — rows of |R|, not columns: columns
+    // would compute |Rᵀ|·half, which underestimates for asymmetric rotations.
     let world_half = DVec3::new(
-        mat.col(0).abs().dot(half),
-        mat.col(1).abs().dot(half),
-        mat.col(2).abs().dot(half),
+        mat.row(0).abs().dot(half),
+        mat.row(1).abs().dot(half),
+        mat.row(2).abs().dot(half),
     );
     Aabb {
         min: center - world_half,
@@ -86,6 +88,43 @@ mod tests {
             (aabb.max - DVec3::new(2.0, 1.0, 1.0)).length() < 1e-10,
             "max: {:?}",
             aabb.max
+        );
+    }
+
+    #[test]
+    fn obb_to_aabb_matches_corner_hull_for_asymmetric_rotation() {
+        // Compound rotation whose |R| is not symmetric — distinguishes rows
+        // from columns. Ground truth: AABB of the 8 transformed box corners.
+        let orientation = DQuat::from_rotation_x(1.2) * DQuat::from_rotation_z(0.7);
+        let local_min = DVec3::new(-1.0, -2.0, -3.0);
+        let local_max = DVec3::new(1.0, 2.0, 3.0);
+        let pos = DVec3::new(4.0, -5.0, 6.0);
+
+        let mut hull_min = DVec3::splat(f64::INFINITY);
+        let mut hull_max = DVec3::splat(f64::NEG_INFINITY);
+        for i in 0..8 {
+            let corner = DVec3::new(
+                if i & 1 == 0 { local_min.x } else { local_max.x },
+                if i & 2 == 0 { local_min.y } else { local_max.y },
+                if i & 4 == 0 { local_min.z } else { local_max.z },
+            );
+            let world = pos + orientation * corner;
+            hull_min = hull_min.min(world);
+            hull_max = hull_max.max(world);
+        }
+
+        let aabb = obb_to_aabb(local_min, local_max, pos, orientation);
+        assert!(
+            (aabb.min - hull_min).length() < 1e-10,
+            "min: {:?} vs hull {:?}",
+            aabb.min,
+            hull_min
+        );
+        assert!(
+            (aabb.max - hull_max).length() < 1e-10,
+            "max: {:?} vs hull {:?}",
+            aabb.max,
+            hull_max
         );
     }
 
