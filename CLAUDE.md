@@ -17,7 +17,7 @@ The dev environment uses Nix (`shell.nix`) with a nightly Rust toolchain and SDL
 
 ## Architecture
 
-Rust game demo using **Legion ECS**. Entry point: `src/main.rs`. Renderer: `SceneRenderer` (roxlap-render 0.23). Reference: https://ncrashed.github.io/roxlap/
+Rust game demo using **Legion ECS**. Entry point: `src/main.rs`. Renderer: `SceneRenderer` (roxlap-render 0.25). Reference: https://ncrashed.github.io/roxlap/
 
 ### Coordinate conventions
 
