@@ -1,4 +1,4 @@
-use glam::{DMat3, DQuat, DVec3};
+use glam::{DMat3, DQuat, DVec3, UVec3, Vec3};
 use legion::{system, world::SubWorld, *};
 
 use roxlap_gpu::SpriteModelRegistry;
@@ -14,8 +14,8 @@ pub fn aabb_update(world: &mut SubWorld, #[resource] registry: &SpriteModelRegis
     for (sprite, body, aabb) in q.iter_mut(world) {
         let model = registry.model(sprite.chain_id);
         let vws = model.voxel_world_size as f64;
-        let pivot = DVec3::from(model.pivot.map(|p| p as f64));
-        let dims = DVec3::from(model.dims.map(|d| d as f64));
+        let pivot = Vec3::from(model.pivot).as_dvec3();
+        let dims = UVec3::from(model.dims).as_dvec3();
         let local_min = -pivot * vws;
         let local_max = (dims - pivot) * vws;
         *aabb = obb_to_aabb(local_min, local_max, body.pos, body.orientation);

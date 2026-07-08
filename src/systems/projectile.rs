@@ -1,4 +1,4 @@
-use glam::{DQuat, DVec3, IVec3, UVec3};
+use glam::{DQuat, DVec3, IVec3, UVec3, Vec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rand::{rngs::StdRng, RngExt, SeedableRng};
 use roxlap_gpu::SpriteModel;
@@ -196,7 +196,7 @@ pub fn projectile(
     for hit in ast_hits {
         let hv = hit.hit_voxel;
         let pivot = registry.model(hit.ast_chain_id).pivot;
-        let pivot_vec = DVec3::from(pivot.map(|p| p as f64));
+        let pivot_vec = Vec3::from(pivot).as_dvec3();
 
         // Read minerals from the world only for asteroids that were actually hit.
         let (hit_minerals, all_minerals) = match world.entry_ref(hit.ast_entity) {
@@ -333,7 +333,7 @@ pub fn projectile(
 /// carved voxels feed the debris-burst tint.
 fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32, Vec<u32>) {
     let r = radius as i32;
-    let dims_i = IVec3::from(model.dims.map(|d| d as i32));
+    let dims_i = UVec3::from(model.dims).as_ivec3();
     let occ = model.occ_words_per_col as usize;
     let mut removed = Vec::new();
     for dz in -r..=r {
@@ -426,9 +426,9 @@ fn voxel_hit(
 ) -> Option<UVec3> {
     let local = ast_orientation.inverse() * (proj_pos - ast_pos);
     let vws = model.voxel_world_size as f64;
-    let pivot = DVec3::from(model.pivot.map(|p| p as f64));
+    let pivot = Vec3::from(model.pivot).as_dvec3();
     let vi = (local / vws + pivot).floor().as_ivec3();
-    let dims = IVec3::from(model.dims.map(|d| d as i32));
+    let dims = UVec3::from(model.dims).as_ivec3();
     if vi.cmplt(IVec3::ZERO).any() || vi.cmpge(dims).any() {
         return None;
     }

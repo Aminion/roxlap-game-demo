@@ -92,10 +92,11 @@ pub fn render(
 
 fn sprite_from_body(b: &NewtonBody, scale: Vec3) -> DynSpriteTransform {
     let rot = DMat3::from_quat(b.orientation);
+    let scale = scale.as_dvec3();
     DynSpriteTransform {
         pos: b.pos.as_vec3().to_array(),
-        right: (rot.x_axis * scale.x as f64).as_vec3().to_array(),
-        up: (rot.y_axis * scale.y as f64).as_vec3().to_array(),
-        forward: (rot.z_axis * scale.z as f64).as_vec3().to_array(),
+        right: (rot.x_axis * scale.x).as_vec3().to_array(),
+        up: (rot.y_axis * scale.y).as_vec3().to_array(),
+        forward: (rot.z_axis * scale.z).as_vec3().to_array(),
     }
 }
