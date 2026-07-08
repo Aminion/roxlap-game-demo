@@ -16,6 +16,16 @@ impl NewtonBody {
         self.orientation =
             (DQuat::from_scaled_axis(self.angular_vel * dt.0) * self.orientation).normalize();
     }
+
+    pub fn fwd(&self) -> DVec3 {
+        self.orientation * DVec3::NEG_Z
+    }
+    pub fn right(&self) -> DVec3 {
+        self.orientation * DVec3::X
+    }
+    pub fn up(&self) -> DVec3 {
+        self.orientation * DVec3::Y
+    }
 }
 
 #[cfg(test)]

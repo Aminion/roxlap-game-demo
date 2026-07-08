@@ -69,7 +69,7 @@ pub fn apply_angular_damping(
     if !inputs.contains(&PlayerInput::Damping) {
         return;
     }
-    let ship_fwd = body.orientation * DVec3::NEG_Z;
+    let ship_fwd = body.fwd();
     let roll_world = body.angular_vel.project_onto_normalized(ship_fwd);
     bank.command += body.orientation.inverse() * (-roll_world * DAMPING_GAIN);
 }

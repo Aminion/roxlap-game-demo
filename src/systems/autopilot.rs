@@ -28,7 +28,7 @@ const EPSILON: f64 = 1e-9;
 /// still allows stopping at the target — so braking starts early enough to avoid overshoot.
 /// Within DEAD_ZONE the autopilot only damps residual spin to suppress idle chatter.
 pub fn apply_autopilot(body: &NewtonBody, bank: &mut ThrusterBank, target_dir: DVec3) {
-    let ship_fwd = body.orientation * DVec3::NEG_Z;
+    let ship_fwd = body.fwd();
 
     let steer_cross = ship_fwd.cross(target_dir);
     let steer_sin = steer_cross.length();
@@ -88,7 +88,7 @@ pub fn autopilot(
         let (cam_right, cam_up) = {
             let mut q = <(&Miner, &NewtonBody)>::query();
             let (_, body) = q.iter(world).next().expect("miner missing");
-            (body.orientation * DVec3::X, body.orientation * DVec3::Y)
+            (body.right(), body.up())
         };
         let delta = mouse_delta.as_dvec2() * (-MOUSE_SENSITIVITY);
         let yaw_rot = DQuat::from_axis_angle(cam_up, delta.x);
@@ -152,11 +152,10 @@ mod tests {
             apply_autopilot(&body, &mut bank, target);
             apply_thrusters(&mut body, &mut bank, dt);
             body.integrate_rotation(&Dt(dt));
-            let heading = body.orientation * DVec3::NEG_Z;
+            let heading = body.fwd();
             let angle = heading.dot(target).clamp(-1.0, 1.0).acos();
             if angle < super::DEAD_ZONE {
-                let ship_fwd = body.orientation * DVec3::NEG_Z;
-                return Some(reject(body.angular_vel, ship_fwd).length());
+                return Some(reject(body.angular_vel, heading).length());
             }
         }
         None
@@ -190,8 +189,7 @@ mod tests {
     }
 
     fn heading_error(body: &NewtonBody, target: DVec3) -> f64 {
-        let heading = body.orientation * DVec3::NEG_Z;
-        heading.dot(target).clamp(-1.0, 1.0).acos()
+        body.fwd().dot(target).clamp(-1.0, 1.0).acos()
     }
 
     // ── No NaN / inf in command under arbitrary single-step inputs ──────────

@@ -1,4 +1,3 @@
-use glam::DVec3;
 use legion::{system, world::SubWorld, *};
 use roxlap_render::{PointLight, SpotLight};
 
@@ -38,7 +37,7 @@ pub fn lighting(
             casts_shadow: true,
         });
 
-        let fwd = (body.orientation * DVec3::NEG_Z).as_vec3();
+        let fwd = body.fwd().as_vec3();
         let nose_pos = body.pos.as_vec3() + fwd * miner_model.nose_offset as f32;
         spot_lights.0.push(SpotLight {
             position: nose_pos.to_array(),

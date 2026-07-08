@@ -21,7 +21,7 @@ use crate::{
     math::splitmix64,
     systems::{
         particle::PARTICLE_MODEL_DIM,
-        sprite::{perform_despawn, spawn_shared_instance, sprite_model_to_kv6},
+        sprite::{perform_despawn, spawn_shared_instance, sprite_model_to_kv6, voxel_color_index},
     },
     world::{CrystalModel, ParticleModel},
     Dt,
@@ -232,7 +232,7 @@ pub fn projectile(
         let hv_packed = (hv.x as u64) | ((hv.y as u64) << 20) | ((hv.z as u64) << 40);
         let mut rng = StdRng::seed_from_u64(splitmix64(world_seed.0 ^ hv_packed));
         for &p in crystals_to_spawn {
-            let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
+            let local = voxel_center_local(p, pivot_vec);
             let crystal_world = hit.ast_pos + hit.ast_orientation * local;
             let spin = DVec3::new(
                 rng.random_range(-2.0f64..2.0),
@@ -267,7 +267,7 @@ pub fn projectile(
         // when its last particle dies) so emitters never accumulate.
         let count = removed_colors.len().min(CARVE_DEBRIS_CAP) as u32;
         if count > 0 {
-            let carve_local = hv.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
+            let carve_local = voxel_center_local(hv, pivot_vec);
             let carve_world = hit.ast_pos + hit.ast_orientation * carve_local;
             let id = particle_sys.add_emitter(ParticleEmitterDef {
                 pos: carve_world.as_vec3().to_array(),
@@ -348,18 +348,10 @@ fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u
                     let col = (c.x as u32 + c.y as u32 * model.dims[0]) as usize;
                     let base = col * occ;
                     let z_word = c.z as usize / 32;
-                    let z_bit = c.z % 32;
+                    let z_bit = (c.z % 32) as u32;
                     if (model.occupancy[base + z_word] >> z_bit) & 1 == 1 {
-                        // Popcount-rank color lookup (colors sorted ascending z
-                        // per column), sampled before the voxel is removed.
-                        let col_start = model.color_offsets[col] as usize;
-                        let mut rank = 0usize;
-                        for w in 0..z_word {
-                            rank += model.occupancy[base + w].count_ones() as usize;
-                        }
-                        let below_mask = (1u32 << z_bit) - 1;
-                        rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
-                        removed.push(model.colors[col_start + rank]);
+                        let color_idx = voxel_color_index(model, col, base, z_word, z_bit);
+                        removed.push(model.colors[color_idx]);
                     }
                     model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
                 }
@@ -397,6 +389,10 @@ fn minerals_in_radius(minerals: &[UVec3], center: IVec3, radius: u32) -> Vec<UVe
         .collect()
 }
 
+fn voxel_center_local(v: UVec3, pivot: DVec3) -> DVec3 {
+    v.as_dvec3() + DVec3::splat(0.5) - pivot
+}
+
 /// Compute `(delta_vel, delta_omega)` for an asteroid struck by a projectile.
 ///
 /// Uses a solid-sphere moment-of-inertia estimate (I = 2/5·m·r²).
@@ -409,7 +405,7 @@ fn hit_impulse(
     hit_voxel: UVec3,
     pivot: DVec3,
 ) -> (DVec3, DVec3) {
-    let hit_local = hit_voxel.as_dvec3() + DVec3::splat(0.5) - pivot;
+    let hit_local = voxel_center_local(hit_voxel, pivot);
     let lever = ast_orientation * hit_local;
     let impulse = proj_vel * proj_mass;
     let delta_vel = impulse / ast_mass;

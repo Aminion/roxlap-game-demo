@@ -28,6 +28,24 @@ pub fn perform_despawn(
     commands.remove(entity);
 }
 
+/// Popcount-rank index into `model.colors` for the occupied voxel at
+/// column `col` (occupancy block `base`), word `z_word`, bit `z_bit`.
+pub fn voxel_color_index(
+    model: &SpriteModel,
+    col: usize,
+    base: usize,
+    z_word: usize,
+    z_bit: u32,
+) -> usize {
+    let mut rank = model.color_offsets[col] as usize;
+    for w in 0..z_word {
+        rank += model.occupancy[base + w].count_ones() as usize;
+    }
+    let below_mask = (1u32 << z_bit) - 1;
+    rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
+    rank
+}
+
 /// Convert a dense-occupancy `SpriteModel` into a surface-only `Kv6` for the renderer.
 pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
     let [mx, my, mz] = model.dims;
@@ -40,14 +58,8 @@ pub fn sprite_model_to_kv6(model: &SpriteModel) -> Kv6 {
         if (model.occupancy[base + z_word] >> z_bit) & 1 == 0 {
             return None;
         }
-        let col_start = model.color_offsets[col] as usize;
-        let mut rank = 0usize;
-        for w in 0..z_word {
-            rank += model.occupancy[base + w].count_ones() as usize;
-        }
-        let below_mask = (1u32 << z_bit) - 1;
-        rank += (model.occupancy[base + z_word] & below_mask).count_ones() as usize;
-        Some(VoxColor(model.colors[col_start + rank]))
+        let color_idx = voxel_color_index(model, col, base, z_word, z_bit);
+        Some(VoxColor(model.colors[color_idx]))
     })
 }
 

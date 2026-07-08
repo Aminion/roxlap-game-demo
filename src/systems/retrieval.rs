@@ -47,7 +47,7 @@ pub fn retrieval(
     let (miner_pos, ray_origin, forward) = {
         let mut q = <(&Miner, &NewtonBody, &CameraComponent)>::query();
         let (_, body, cam) = q.iter(world).next().expect("miner missing");
-        let fwd = body.orientation * DVec3::NEG_Z;
+        let fwd = body.fwd();
         (body.pos, DVec3::from(cam.0.pos), fwd)
     };
 

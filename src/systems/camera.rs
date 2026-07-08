@@ -1,4 +1,3 @@
-use glam::DVec3;
 use legion::{world::SubWorld, *};
 
 use crate::{
@@ -16,9 +15,9 @@ const THIRD_PERSON_HEIGHT: f64 = 16.0;
 pub fn camera_update(world: &mut SubWorld, #[resource] cam_mode: &CameraMode) {
     let mut query = <(&Miner, &NewtonBody, &mut CameraComponent)>::query();
     let (_, body, cam) = query.iter_mut(world).next().expect("miner missing");
-    let fwd = body.orientation * DVec3::NEG_Z;
-    let right = body.orientation * DVec3::X;
-    let up = body.orientation * DVec3::Y;
+    let fwd = body.fwd();
+    let right = body.right();
+    let up = body.up();
     let cam_pos = match cam_mode {
         CameraMode::ThirdPerson => body.pos - fwd * THIRD_PERSON_DIST + up * THIRD_PERSON_HEIGHT,
         CameraMode::FirstPerson => body.pos,

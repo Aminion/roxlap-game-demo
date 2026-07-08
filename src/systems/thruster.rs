@@ -14,11 +14,13 @@ pub const THRUSTER_DRAIN_RATE: f64 = 1.0;
 const EFFORT_EPSILON: f64 = 1e-3;
 
 pub fn apply_thrusters(body: &mut NewtonBody, bank: &mut ThrusterBank, dt: f64) {
-    body.angular_vel += body.orientation * (bank.command.clamp_length_max(bank.max_rot_accel) * dt);
-    bank.command = DVec3::ZERO;
-
-    body.vel += body.orientation * (bank.linear_command.clamp_length_max(bank.max_lin_accel) * dt);
-    bank.linear_command = DVec3::ZERO;
+    let orientation = body.orientation;
+    let apply = |vel: &mut DVec3, cmd: &mut DVec3, max: f64| {
+        *vel += orientation * (cmd.clamp_length_max(max) * dt);
+        *cmd = DVec3::ZERO;
+    };
+    apply(&mut body.angular_vel, &mut bank.command, bank.max_rot_accel);
+    apply(&mut body.vel, &mut bank.linear_command, bank.max_lin_accel);
 }
 
 #[system]
@@ -31,8 +33,9 @@ pub fn thruster(world: &mut SubWorld, #[resource] dt: &Dt, #[resource] energy: &
     // Miner thrust is energy-gated: calculate cost from commands, apply only if affordable.
     let mut miner_q = <(&Miner, &mut NewtonBody, &mut ThrusterBank)>::query();
     let (_, body, bank) = miner_q.iter_mut(world).next().expect("miner missing");
-    let lin = (bank.linear_command.length() / bank.max_lin_accel).min(1.0);
-    let rot = (bank.command.length() / bank.max_rot_accel).min(1.0);
+    let effort_of = |cmd: DVec3, max: f64| (cmd.length() / max).min(1.0);
+    let lin = effort_of(bank.linear_command, bank.max_lin_accel);
+    let rot = effort_of(bank.command, bank.max_rot_accel);
     let effort = lin + rot;
     let cost = effort * THRUSTER_DRAIN_RATE * dt;
 
