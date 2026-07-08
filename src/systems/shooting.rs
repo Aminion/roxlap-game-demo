@@ -15,11 +15,11 @@ use crate::{
     Dt,
 };
 
+const SHOT_COST: f64 = 1.0;
 const PROJECTILE_SPEED: f64 = 512.0;
 const PROJECTILE_MASS: f64 = 0.0001;
 const PROJECTILE_LIFETIME: f64 = 8.0;
 const CANNON_RATE: f64 = 8.0;
-const SHOT_COST: f64 = 1.0;
 
 #[system]
 #[read_component(Miner)]

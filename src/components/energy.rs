@@ -8,5 +8,6 @@ impl Energy {
     }
 }
 
+pub const ENERGY_INITIAL: f64 = 256.0;
 pub const ENERGY_LOW: f64 = 30.0;
 pub const ENERGY_MED: f64 = 90.0;

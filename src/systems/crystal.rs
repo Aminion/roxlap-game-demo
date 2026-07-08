@@ -10,7 +10,7 @@ use crate::{
     systems::sprite::perform_despawn,
 };
 
-pub const CRYSTAL_PICKUP_ENERGY: f64 = 25.0;
+const CRYSTAL_PICKUP_ENERGY: f64 = 25.0;
 
 #[system]
 #[read_component(Miner)]
