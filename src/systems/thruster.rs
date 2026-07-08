@@ -8,7 +8,7 @@ use crate::{
 
 /// Energy drained per unit of effort per second.
 /// Effort is 0..1 per channel (linear + rotational), so max drain is 2× this.
-pub const THRUSTER_DRAIN_RATE: f64 = 5.0;
+pub const THRUSTER_DRAIN_RATE: f64 = 1.0;
 
 /// Effort below this threshold is treated as zero (suppresses autopilot micro-correction drain).
 const EFFORT_EPSILON: f64 = 1e-3;

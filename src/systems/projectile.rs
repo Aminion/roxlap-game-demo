@@ -28,13 +28,8 @@ use crate::{
 };
 
 /// Voxel radius of the crater carved on each hit.
-const HIT_CARVE_RADIUS: u32 = 8;
+const HIT_CARVE_RADIUS: u32 = 4;
 
-/// Scales raw projectile momentum (mass × speed) into effective impulse.
-/// Keeps the direction physics-correct while tuning the magnitude for
-/// feel — without it a 0.001 kg bullet hitting a 1 kg asteroid barely
-/// nudges it.
-const HIT_IMPULSE_FACTOR: f64 = 5.0;
 /// Moment of inertia coefficient for a uniform solid sphere: I = (2/5)·m·r².
 const SOLID_SPHERE_INERTIA: f64 = 0.4;
 
@@ -234,9 +229,7 @@ pub fn projectile(
             &hit_minerals
         };
 
-        let hv_packed = (hv.x as u64)
-            | ((hv.y as u64) << 20)
-            | ((hv.z as u64) << 40);
+        let hv_packed = (hv.x as u64) | ((hv.y as u64) << 20) | ((hv.z as u64) << 40);
         let mut rng = StdRng::seed_from_u64(splitmix64(world_seed.0 ^ hv_packed));
         for &p in crystals_to_spawn {
             let local = p.as_dvec3() + DVec3::splat(0.5) - pivot_vec;
@@ -418,7 +411,7 @@ fn hit_impulse(
 ) -> (DVec3, DVec3) {
     let hit_local = hit_voxel.as_dvec3() + DVec3::splat(0.5) - pivot;
     let lever = ast_orientation * hit_local;
-    let impulse = proj_vel * proj_mass * HIT_IMPULSE_FACTOR;
+    let impulse = proj_vel * proj_mass;
     let delta_vel = impulse / ast_mass;
     let moment = SOLID_SPHERE_INERTIA * ast_mass * ast_radius * ast_radius;
     let delta_omega = lever.cross(impulse) / moment;

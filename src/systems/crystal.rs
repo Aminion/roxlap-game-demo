@@ -3,11 +3,7 @@ use roxlap_render::SceneRenderer;
 
 use crate::{
     components::{
-        aabb::Aabb,
-        crystal::CrystalMarker,
-        energy::{Energy, ENERGY_MAX},
-        miner::Miner,
-        newton_body::NewtonBody,
+        aabb::Aabb, crystal::CrystalMarker, energy::Energy, miner::Miner, newton_body::NewtonBody,
         sprite_id::Sprite,
     },
     generation::chunks::{world_to_chunk, LOAD_RADIUS},
@@ -54,8 +50,7 @@ pub fn crystal(
     }
 
     if pickup_count > 0 {
-        energy.current =
-            (energy.current + CRYSTAL_PICKUP_ENERGY * pickup_count as f64).min(ENERGY_MAX);
+        energy.current = energy.current + CRYSTAL_PICKUP_ENERGY * pickup_count as f64;
     }
 
     for entity in to_despawn {
@@ -64,12 +59,4 @@ pub fn crystal(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn pickup_energy_caps_at_max() {
-        let e = (ENERGY_MAX - 1.0 + CRYSTAL_PICKUP_ENERGY).min(ENERGY_MAX);
-        assert_eq!(e, ENERGY_MAX);
-    }
-}
+mod tests {}

@@ -6,10 +6,7 @@ use roxlap_render::{BillboardLighting, SceneRenderer};
 
 use crate::{
     components::{
-        cannon::Cannon,
-        energy::{Energy, SHOT_COST},
-        miner::Miner,
-        newton_body::NewtonBody,
+        cannon::Cannon, energy::Energy, miner::Miner, newton_body::NewtonBody,
         projectile::Projectile,
     },
     input::PlayerInput,
@@ -18,10 +15,11 @@ use crate::{
     Dt,
 };
 
-const PROJECTILE_SPEED: f64 = 300.0;
-const PROJECTILE_MASS: f64 = 0.001;
-const PROJECTILE_LIFETIME: f64 = 6.0;
-const CANNON_COOLDOWN: f64 = 0.2;
+const PROJECTILE_SPEED: f64 = 512.0;
+const PROJECTILE_MASS: f64 = 0.0001;
+const PROJECTILE_LIFETIME: f64 = 8.0;
+const CANNON_RATE: f64 = 8.0;
+const SHOT_COST: f64 = 1.0;
 
 #[system]
 #[read_component(Miner)]
@@ -49,7 +47,7 @@ pub fn shooting(
             return;
         }
         energy.current -= SHOT_COST;
-        cannon.cooldown = CANNON_COOLDOWN;
+        cannon.cooldown = CANNON_RATE.recip();
         let fwd = body.orientation * DVec3::NEG_Z;
         (body.pos, body.vel, body.mass, fwd)
     };

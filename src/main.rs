@@ -30,7 +30,7 @@ use sdl2::{
     EventPump,
 };
 
-use crate::components::energy::{Energy, ENERGY_MAX};
+use crate::components::energy::Energy;
 use crate::generation::{
     chunks::{ChunkQueue, LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed},
     generate_star_sky,
@@ -222,7 +222,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(WorldSeed(WORLD_SEED));
     resources.insert(PendingCompact(0));
     resources.insert(ChunkQueue::new());
-    resources.insert(Energy::new(ENERGY_MAX));
+    resources.insert(Energy::new(256.0));
     resources.insert(RetrievalBeam(None));
     resources.insert(GameState::TitleScreen);
     resources.insert(CameraMode::ThirdPerson);
@@ -313,7 +313,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     }
 
     // Reset all runtime resources.
-    resources.get_mut::<Energy>().unwrap().current = ENERGY_MAX;
+    resources.get_mut::<Energy>().unwrap().current = 256.0;
     resources.get_mut::<VisitedChunks>().unwrap().0.clear();
     resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
     resources.get_mut::<PendingCompact>().unwrap().0 = 0;
