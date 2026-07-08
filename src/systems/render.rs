@@ -65,7 +65,7 @@ pub fn render(
             direction: cam_fwd,
             color: [1.0; 3],
             intensity: 0.25,
-            casts_shadow: false,
+            casts_shadow: true,
         }),
         points: &point_lights.0,
         spots: &spot_lights.0,
