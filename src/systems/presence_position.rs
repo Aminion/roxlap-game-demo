@@ -19,6 +19,7 @@ use crate::{
     generation::chunks::{
         compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, ChunkQueue,
         LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed, CHUNK_SIZE, LOAD_RADIUS,
+        UNLOAD_RADIUS,
     },
     systems::sprite::{perform_despawn, spawn_sprite},
 };
@@ -61,7 +62,7 @@ pub fn presence_position_update(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
-    let (ship_pos, updated_pos) = {
+    let (ship_pos, ship_speed, updated_pos) = {
         let mut query = <(&Miner, &NewtonBody, &mut PresencePosition)>::query();
         let (_, body, presence) = query.iter_mut(world).next().expect("miner missing");
         let pos = body.pos;
@@ -71,7 +72,7 @@ pub fn presence_position_update(
         } else {
             false
         };
-        (pos, updated)
+        (pos, body.vel.length(), updated)
     };
 
     if updated_pos {
@@ -102,8 +103,22 @@ pub fn presence_position_update(
     // not O(dead count), so firing every unload cycle (94–165 dead, ~300KB recovered)
     // is wasteful — defer until the waste is worth a 35–66ms rebuild.
     const COMPACT_DEAD_THRESHOLD: u32 = 300;
+    // Safety valve: dead entries keep occupancy/color_offsets holes (~2KB per
+    // asteroid; colors slots ARE recycled via the free list) that only compact
+    // reclaims. 10k dead ≈ 20MB of holes — force a compact past that even
+    // while the ship is moving.
+    const COMPACT_DEAD_HARD_CAP: u32 = 10_000;
+    // Compacting shrinks the GPU buffers to a tight fit, so doing it while
+    // asteroids are still streaming guarantees an immediate grow+repack (a
+    // second full rebuild). The chunk queue drains within a few frames even
+    // in flight, so "queue empty" alone is a bad idle signal — require the
+    // ship to be practically parked (< 1/6 chunk per second) as well.
+    const COMPACT_MAX_SPEED: f64 = CHUNK_SIZE as f64 / 6.0;
 
-    let should_compact = pending_compact.0 >= COMPACT_DEAD_THRESHOLD;
+    let should_compact = (pending_compact.0 >= COMPACT_DEAD_THRESHOLD
+        && ship_speed < COMPACT_MAX_SPEED
+        && chunk_queue.is_empty())
+        || pending_compact.0 >= COMPACT_DEAD_HARD_CAP;
 
     if should_compact {
         renderer.compact_sprite_models();
@@ -213,7 +228,7 @@ fn update_sprites(
     commands: &mut CommandBuffer,
 ) -> usize {
     let center = world_to_chunk(ship_pos);
-    let r2 = LOAD_RADIUS * LOAD_RADIUS;
+    let r2 = UNLOAD_RADIUS * UNLOAD_RADIUS;
 
     let mut to_unload: Vec<(Entity, IVec3)> = Vec::new();
     for &entity in &loaded.0 {

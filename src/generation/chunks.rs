@@ -20,8 +20,10 @@ pub struct LoadedAsteroids(pub HashSet<Entity>);
 pub struct WorldSeed(pub u64);
 
 /// Tombstoned sprite models accumulated since the last `compact_sprite_models` call.
-/// Compact fires when the chunk generation queue empties (or on threshold revisits
-/// with pending tombstones), so its cost lands on a frame already paying generation.
+/// Compact fires once enough tombstones pile up AND the ship is practically parked
+/// (queue drained, speed near zero) — compacting mid-flight shrinks the GPU buffers
+/// tight and the next chunk batch immediately forces a grow+repack (a second full
+/// rebuild). A hard cap forces a compact anyway if a long flight never pauses.
 pub struct PendingCompact(pub u32);
 
 /// FIFO queue of chunk coordinates waiting to be generated, with an O(1) membership set.
@@ -85,6 +87,12 @@ pub const CHUNK_SIZE: i32 = 64;
 
 /// Radius (in chunks) of the loaded sphere around the player.
 pub const LOAD_RADIUS: i32 = 8;
+
+/// Radius (in chunks) beyond which loaded asteroids are despawned. Kept one
+/// chunk wider than `LOAD_RADIUS` for hysteresis: shell-boundary asteroids
+/// would otherwise unload and reload repeatedly as the ship oscillates
+/// across the boundary, churning the GPU sprite registry.
+pub const UNLOAD_RADIUS: i32 = LOAD_RADIUS + 1;
 
 /// Convert a world-space position to the chunk coordinate that contains it.
 pub fn world_to_chunk(world_pos: DVec3) -> IVec3 {
