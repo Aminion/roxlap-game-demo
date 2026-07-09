@@ -1,3 +1,5 @@
+use std::sync::OnceLock;
+
 use glam::{DQuat, DVec3, IVec3};
 use legion::{system, systems::CommandBuffer, world::SubWorld, Entity, *};
 use rayon::prelude::*;
@@ -23,9 +25,25 @@ use crate::{
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
 
-/// Number of chunks pulled from the queue and processed per frame.
-/// The compute phase runs in parallel, so wall time ≈ single-chunk cost / thread count.
-const CHUNK_BATCH_SIZE: usize = 64;
+/// Chunks assigned per rayon thread in each frame's generation batch.
+/// Total batch = `CHUNKS_PER_THREAD × num_threads`, capped at `MAX_CHUNK_BATCH`.
+const CHUNKS_PER_THREAD: usize = 8;
+/// Hard ceiling so high-core machines don't inflate the sequential upload phase.
+const MAX_CHUNK_BATCH: usize = 128;
+
+static RAYON_THREAD_COUNT: OnceLock<usize> = OnceLock::new();
+
+/// Call once at startup (before the game loop) to snapshot the rayon pool size.
+/// `drain_chunk_queue` self-inits lazily if this is not called, but calling it
+/// explicitly front-loads pool creation to a predictable point.
+pub fn init_chunk_parallelism() {
+    RAYON_THREAD_COUNT.get_or_init(|| rayon::current_num_threads());
+}
+
+fn chunk_batch_size() -> usize {
+    let threads = RAYON_THREAD_COUNT.get_or_init(|| rayon::current_num_threads());
+    (threads * CHUNKS_PER_THREAD).min(MAX_CHUNK_BATCH)
+}
 
 #[system]
 #[read_component(Miner)]
@@ -93,7 +111,7 @@ fn enqueue_chunks(ship_pos: DVec3, visited: &VisitedChunks, chunk_queue: &mut Ch
     }
 }
 
-/// Drain up to `CHUNK_BATCH_SIZE` chunks per frame.
+/// Drain up to `chunk_batch_size()` chunks per frame.
 /// Compute phase runs in parallel via rayon; GPU upload is sequential on the main thread.
 /// Prunes entries that have drifted outside the load radius (ship moved away).
 fn drain_chunk_queue(
@@ -126,7 +144,7 @@ fn drain_chunk_queue(
         return;
     }
 
-    let batch_size = CHUNK_BATCH_SIZE.min(chunk_queue.len());
+    let batch_size = chunk_batch_size().min(chunk_queue.len());
     let batch = chunk_queue.drain_front(batch_size);
 
     // Build Perlin noise once for the whole batch — all chunks share the same world seed,

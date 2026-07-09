@@ -225,7 +225,7 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(Energy::new(ENERGY_INITIAL));
     resources.insert(RetrievalBeam(None));
     resources.insert(GameState::TitleScreen);
-    resources.insert(CameraMode::ThirdPerson);
+    resources.insert(CameraMode::FirstPerson);
     resources.insert(PointLights(Vec::new()));
     resources.insert(SpotLights(Vec::new()));
 
@@ -320,7 +320,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<ChunkQueue>().unwrap().clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<RetrievalBeam>().unwrap().0 = None;
-    *resources.get_mut::<CameraMode>().unwrap() = CameraMode::ThirdPerson;
+    *resources.get_mut::<CameraMode>().unwrap() = CameraMode::FirstPerson;
     resources.get_mut::<HashSet<PlayerInput>>().unwrap().clear();
     *resources.get_mut::<MouseDelta>().unwrap() = Vec2::ZERO;
     resources.get_mut::<FrameTimer>().unwrap().0 = Instant::now();
@@ -334,6 +334,7 @@ fn main() {
         display: window.display_handle().unwrap().as_raw(),
     });
 
+    systems::presence_position::init_chunk_parallelism();
     let mut schedule = build_schedule();
     let mut world = World::default();
     let _window = window;
