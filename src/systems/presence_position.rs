@@ -33,7 +33,7 @@ const PARKED_MAX_SPEED: f64 = CHUNK_SIZE as f64 / 6.0;
 /// Spawn uploads (kv6 conversion + renderer registration) allowed per frame
 /// while flying. Sequential main-thread work — a dense shell holds 50+
 /// spawns, and uploading them all in one frame reads as a hitch.
-const SPAWN_UPLOADS_MOVING: usize = 8;
+const SPAWN_UPLOADS_MOVING: usize = 16;
 /// While parked (startup, after stopping) pop-in speed matters more than
 /// frame pacing, so drain the buffer much faster.
 const SPAWN_UPLOADS_PARKED: usize = 64;
