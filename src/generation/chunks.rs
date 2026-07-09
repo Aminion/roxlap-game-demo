@@ -140,18 +140,29 @@ const CRYSTAL_SPAWN_CHANCE: f32 = 0.01;
 /// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
 const SPAWN_SAFE_RANGE: f64 = 24.0;
 
-pub(crate) enum ChunkComputeResult {
-    NoSpawn {
-        chunk: IVec3,
-    },
-    Spawn {
-        chunk: IVec3,
-        model: SpriteModel,
-        minerals: Vec<UVec3>,
-        spawn_pos: DVec3,
-        angular_vel: DVec3,
-    },
+/// Everything the sequential upload phase needs to turn a computed chunk
+/// into a live asteroid (renderer registration + ECS spawn).
+pub(crate) struct SpawnData {
+    pub chunk: IVec3,
+    pub model: SpriteModel,
+    pub minerals: Vec<UVec3>,
+    pub spawn_pos: DVec3,
+    pub angular_vel: DVec3,
 }
+
+pub(crate) enum ChunkComputeResult {
+    NoSpawn { chunk: IVec3 },
+    Spawn(SpawnData),
+}
+
+/// Computed asteroid spawns waiting for their main-thread GPU upload.
+/// Chunk *compute* is parallel and cheap, but each spawn's kv6 conversion +
+/// renderer registration is sequential main-thread work — a dense shell can
+/// put 50+ of them in one frame, which reads as a hitch. Uploads are
+/// throttled per frame and the surplus carries over here. Chunks in this
+/// buffer are already in `VisitedChunks` (so they can't be re-enqueued);
+/// dropping a stale entry must un-visit its chunk.
+pub(crate) struct PendingSpawns(pub VecDeque<SpawnData>);
 
 /// Pure-CPU chunk evaluation: density noise + optional asteroid model building.
 /// No GPU or ECS access — safe to call from rayon threads.
@@ -192,13 +203,13 @@ pub(crate) fn compute_chunk(
     );
     let angular_vel = chunk_spawn_angular_vel(h);
 
-    ChunkComputeResult::Spawn {
+    ChunkComputeResult::Spawn(SpawnData {
         chunk,
         model,
         minerals,
         spawn_pos,
         angular_vel,
-    }
+    })
 }
 
 /// Combine world seed and chunk coordinates into one u64 base hash.

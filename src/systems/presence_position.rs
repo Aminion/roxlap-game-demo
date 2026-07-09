@@ -18,13 +18,25 @@ use crate::{
     },
     generation::chunks::{
         compute_chunk, missing_chunks, world_to_chunk, ChunkComputeResult, ChunkQueue,
-        LoadedAsteroids, PendingCompact, VisitedChunks, WorldSeed, CHUNK_SIZE, LOAD_RADIUS,
-        UNLOAD_RADIUS,
+        LoadedAsteroids, PendingCompact, PendingSpawns, VisitedChunks, WorldSeed, CHUNK_SIZE,
+        LOAD_RADIUS, UNLOAD_RADIUS,
     },
     systems::sprite::{perform_despawn, spawn_sprite},
 };
 
 const UPDATE_DIST_SQ: f64 = (CHUNK_SIZE as f64 / 2.0) * (CHUNK_SIZE as f64 / 2.0);
+
+/// Below this speed (< 1/6 chunk per second) the ship counts as parked:
+/// streaming has stopped and won't resume within the next second.
+const PARKED_MAX_SPEED: f64 = CHUNK_SIZE as f64 / 6.0;
+
+/// Spawn uploads (kv6 conversion + renderer registration) allowed per frame
+/// while flying. Sequential main-thread work — a dense shell holds 50+
+/// spawns, and uploading them all in one frame reads as a hitch.
+const SPAWN_UPLOADS_MOVING: usize = 8;
+/// While parked (startup, after stopping) pop-in speed matters more than
+/// frame pacing, so drain the buffer much faster.
+const SPAWN_UPLOADS_PARKED: usize = 64;
 
 /// Chunks assigned per rayon thread in each frame's generation batch.
 /// Total batch = `CHUNKS_PER_THREAD × num_threads`, capped at `MAX_CHUNK_BATCH`.
@@ -59,6 +71,7 @@ pub fn presence_position_update(
     #[resource] world_seed: &WorldSeed,
     #[resource] pending_compact: &mut PendingCompact,
     #[resource] chunk_queue: &mut ChunkQueue,
+    #[resource] pending_spawns: &mut PendingSpawns,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) {
@@ -89,9 +102,16 @@ pub fn presence_position_update(
         pending_compact.0 += despawned as u32;
     }
 
+    let upload_cap = if ship_speed < PARKED_MAX_SPEED {
+        SPAWN_UPLOADS_PARKED
+    } else {
+        SPAWN_UPLOADS_MOVING
+    };
     drain_chunk_queue(
         ship_pos,
+        upload_cap,
         chunk_queue,
+        pending_spawns,
         visited,
         loaded,
         renderer,
@@ -112,12 +132,11 @@ pub fn presence_position_update(
     // asteroids are still streaming guarantees an immediate grow+repack (a
     // second full rebuild). The chunk queue drains within a few frames even
     // in flight, so "queue empty" alone is a bad idle signal — require the
-    // ship to be practically parked (< 1/6 chunk per second) as well.
-    const COMPACT_MAX_SPEED: f64 = CHUNK_SIZE as f64 / 6.0;
-
+    // ship to be practically parked and the spawn buffer drained as well.
     let should_compact = (pending_compact.0 >= COMPACT_DEAD_THRESHOLD
-        && ship_speed < COMPACT_MAX_SPEED
-        && chunk_queue.is_empty())
+        && ship_speed < PARKED_MAX_SPEED
+        && chunk_queue.is_empty()
+        && pending_spawns.0.is_empty())
         || pending_compact.0 >= COMPACT_DEAD_HARD_CAP;
 
     if should_compact {
@@ -134,12 +153,17 @@ fn enqueue_chunks(ship_pos: DVec3, visited: &VisitedChunks, chunk_queue: &mut Ch
     }
 }
 
-/// Drain up to `chunk_batch_size()` chunks per frame.
-/// Compute phase runs in parallel via rayon; GPU upload is sequential on the main thread.
+/// Compute up to `chunk_batch_size()` chunks per frame (parallel via rayon)
+/// into the pending-spawn buffer, then upload at most `upload_cap` spawns
+/// (sequential main-thread work) — the throttle that keeps a dense shell
+/// from landing as one multi-frame hitch.
 /// Prunes entries that have drifted outside the load radius (ship moved away).
+#[allow(clippy::too_many_arguments)]
 fn drain_chunk_queue(
     ship_pos: DVec3,
+    upload_cap: usize,
     chunk_queue: &mut ChunkQueue,
+    pending_spawns: &mut PendingSpawns,
     visited: &mut VisitedChunks,
     loaded: &mut LoadedAsteroids,
     renderer: &mut SceneRenderer,
@@ -147,72 +171,83 @@ fn drain_chunk_queue(
     commands: &mut CommandBuffer,
     world_seed: u64,
 ) {
-    if chunk_queue.is_empty() {
-        return;
-    }
-
     let center = world_to_chunk(ship_pos);
     let r2 = LOAD_RADIUS * LOAD_RADIUS;
 
-    // Drain stale front entries (ship moved away before they were generated).
-    while let Some(&front) = chunk_queue.front() {
-        if (front - center).length_squared() > r2 {
-            chunk_queue.pop_front();
-        } else {
+    // Refill the spawn buffer only when it can't cover this frame's uploads,
+    // so at most ~one batch of computed models sits waiting.
+    if pending_spawns.0.len() < upload_cap && !chunk_queue.is_empty() {
+        // Drain stale front entries (ship moved away before they were generated).
+        while let Some(&front) = chunk_queue.front() {
+            if (front - center).length_squared() > r2 {
+                chunk_queue.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        if !chunk_queue.is_empty() {
+            let batch_size = chunk_batch_size().min(chunk_queue.len());
+            let batch = chunk_queue.drain_front(batch_size);
+
+            // Build Perlin noise once for the whole batch — all chunks share the same world seed,
+            // so rebuilding the permutation table per chunk is redundant work.
+            let perlin = PerlinNoise3D::new(world_seed);
+
+            // Parallel compute phase — par_iter preserves order so chain_id assignment is deterministic.
+            let results: Vec<ChunkComputeResult> = batch
+                .into_par_iter()
+                .map(|chunk| compute_chunk(chunk, world_seed, &perlin))
+                .collect();
+
+            for result in results {
+                match result {
+                    ChunkComputeResult::NoSpawn { chunk } => {
+                        visited.0.insert(chunk);
+                    }
+                    ChunkComputeResult::Spawn(data) => {
+                        // Mark visited now so a presence update can't re-enqueue
+                        // the chunk while its spawn waits in the buffer; the
+                        // stale-drop below un-visits it.
+                        visited.0.insert(data.chunk);
+                        pending_spawns.0.push_back(data);
+                    }
+                }
+            }
+        }
+    }
+
+    // Throttled upload phase: GPU registry access and ECS command buffer are
+    // single-threaded, so this is the per-frame cost we're bounding.
+    for _ in 0..upload_cap {
+        let Some(data) = pending_spawns.0.pop_front() else {
             break;
+        };
+        if (data.chunk - center).length_squared() > r2 {
+            // Ship moved away while this spawn waited — drop it and make the
+            // chunk re-populatable.
+            visited.0.remove(&data.chunk);
+            continue;
         }
-    }
-
-    if chunk_queue.is_empty() {
-        return;
-    }
-
-    let batch_size = chunk_batch_size().min(chunk_queue.len());
-    let batch = chunk_queue.drain_front(batch_size);
-
-    // Build Perlin noise once for the whole batch — all chunks share the same world seed,
-    // so rebuilding the permutation table per chunk is redundant work.
-    let perlin = PerlinNoise3D::new(world_seed);
-
-    // Parallel compute phase — par_iter preserves order so chain_id assignment is deterministic.
-    let results: Vec<ChunkComputeResult> = batch
-        .into_par_iter()
-        .map(|chunk| compute_chunk(chunk, world_seed, &perlin))
-        .collect();
-
-    // Sequential upload phase: GPU registry access and ECS command buffer are single-threaded.
-    for result in results {
-        match result {
-            ChunkComputeResult::NoSpawn { chunk } => {
-                visited.0.insert(chunk);
-            }
-            ChunkComputeResult::Spawn {
-                chunk,
-                model,
-                minerals,
-                spawn_pos,
-                angular_vel,
-            } => {
-                visited.0.insert(chunk);
-                let initial_count = model.colors.len() as u32;
-                let sprite = spawn_sprite(renderer, sprite_data, model);
-                let entity = commands.push((
-                    AsteroidMarker,
-                    AsteroidMinerals { points: minerals },
-                    AsteroidVoxelInfo { initial_count },
-                    Aabb::empty(),
-                    sprite,
-                    NewtonBody {
-                        mass: 1.0,
-                        pos: spawn_pos,
-                        vel: DVec3::ZERO,
-                        orientation: DQuat::IDENTITY,
-                        angular_vel,
-                    },
-                ));
-                loaded.0.insert(entity);
-            }
-        }
+        let initial_count = data.model.colors.len() as u32;
+        let sprite = spawn_sprite(renderer, sprite_data, data.model);
+        let entity = commands.push((
+            AsteroidMarker,
+            AsteroidMinerals {
+                points: data.minerals,
+            },
+            AsteroidVoxelInfo { initial_count },
+            Aabb::empty(),
+            sprite,
+            NewtonBody {
+                mass: 1.0,
+                pos: data.spawn_pos,
+                vel: DVec3::ZERO,
+                orientation: DQuat::IDENTITY,
+                angular_vel: data.angular_vel,
+            },
+        ));
+        loaded.0.insert(entity);
     }
 }
 
