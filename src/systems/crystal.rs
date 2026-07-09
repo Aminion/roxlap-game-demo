@@ -1,4 +1,5 @@
 use legion::{system, systems::CommandBuffer, world::SubWorld, *};
+use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::SceneRenderer;
 
 use crate::{
@@ -22,6 +23,7 @@ pub fn crystal(
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
     #[resource] renderer: &mut SceneRenderer,
+    #[resource] registry: &mut SpriteModelRegistry,
     #[resource] energy: &mut Energy,
 ) {
     let (ship_chunk, ship_aabb) = {
@@ -54,7 +56,7 @@ pub fn crystal(
     }
 
     for entity in to_despawn {
-        perform_despawn(entity, world, commands, renderer);
+        perform_despawn(entity, world, commands, renderer, registry);
     }
 }
 

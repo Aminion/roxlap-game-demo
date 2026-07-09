@@ -189,7 +189,7 @@ pub fn projectile(
 
     // Despawn expired/hit projectiles.
     for proj_entity in &proj_to_remove {
-        perform_despawn(*proj_entity, world, commands, renderer);
+        perform_despawn(*proj_entity, world, commands, renderer, registry);
     }
 
     // Process hit asteroids: carve a sphere, apply physics impulse, despawn if empty.
@@ -300,7 +300,7 @@ pub fn projectile(
         );
 
         if destroy {
-            perform_despawn(hit.ast_entity, world, commands, renderer);
+            perform_despawn(hit.ast_entity, world, commands, renderer, registry);
             loaded.0.remove(&hit.ast_entity);
         } else {
             let (delta_vel, delta_omega) = hit_impulse(

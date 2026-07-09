@@ -75,7 +75,15 @@ pub fn presence_position_update(
     };
 
     if updated_pos {
-        let despawned = update_sprites(ship_pos, visited, loaded, renderer, world, commands);
+        let despawned = update_sprites(
+            ship_pos,
+            visited,
+            loaded,
+            renderer,
+            sprite_data,
+            world,
+            commands,
+        );
         enqueue_chunks(ship_pos, visited, chunk_queue);
         pending_compact.0 += despawned as u32;
     }
@@ -200,6 +208,7 @@ fn update_sprites(
     visited: &mut VisitedChunks,
     loaded: &mut LoadedAsteroids,
     renderer: &mut SceneRenderer,
+    registry: &mut SpriteModelRegistry,
     world: &mut SubWorld,
     commands: &mut CommandBuffer,
 ) -> usize {
@@ -226,7 +235,7 @@ fn update_sprites(
 
     let despawn_count = to_unload.len();
     for (entity, chunk) in to_unload {
-        perform_despawn(entity, world, commands, renderer);
+        perform_despawn(entity, world, commands, renderer, registry);
         loaded.0.remove(&entity);
         visited.0.remove(&chunk);
     }

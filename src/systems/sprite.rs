@@ -4,7 +4,8 @@ use roxlap_render::{DynSpriteTransform, Kv6, SceneRenderer, SpriteModelId, VoxCo
 
 use crate::components::sprite_id::Sprite;
 
-/// Remove a single entity from the renderer, ECS, and all bookkeeping.
+/// Remove a single entity from the renderer, ECS, CPU registry, and all
+/// bookkeeping.
 ///
 /// Does NOT touch `VisitedChunks` — callers that want the chunk to be
 /// re-populatable (distance-based unload) must remove it from `visited`
@@ -14,6 +15,7 @@ pub fn perform_despawn(
     world: &SubWorld,
     commands: &mut CommandBuffer,
     renderer: &mut SceneRenderer,
+    registry: &mut SpriteModelRegistry,
 ) {
     let Ok(entry) = world.entry_ref(entity) else {
         return;
@@ -24,6 +26,9 @@ pub fn perform_despawn(
     renderer.remove_sprite_instance(sprite.instance_id);
     if sprite.owns_model {
         renderer.remove_sprite_model(sprite.model_id);
+        // Free the CPU-side voxel data too — without this every asteroid
+        // ever spawned stays resident in the registry for the whole session.
+        registry.remove(sprite.chain_id);
     }
     commands.remove(entity);
 }
