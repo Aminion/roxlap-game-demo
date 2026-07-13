@@ -4,8 +4,8 @@ use rand::{rngs::StdRng, RngExt, SeedableRng};
 use roxlap_gpu::SpriteModel;
 use roxlap_gpu::SpriteModelRegistry;
 use roxlap_render::{
-    BillboardLighting, EmitterShape, ParticleEmitterDef, ParticleSystem, Rgb, SceneRenderer,
-    SpawnMode, SpriteModelId, VelocityDef, CARVE_DEBRIS_CAP,
+    BillboardLighting, ParticleEmitterDef, ParticleSystem, Rgb, SceneRenderer, SpriteModelId,
+    VelocityDef,
 };
 
 use crate::{
@@ -211,7 +211,7 @@ pub fn projectile(
             Err(_) => (vec![], vec![]),
         };
 
-        let (empty, current_voxel_count, removed_colors) = carve_sphere(
+        let (empty, current_voxel_count, removed_voxels) = carve_sphere(
             registry.model_mut(hit.ast_chain_id),
             hv.as_ivec3(),
             HIT_CARVE_RADIUS,
@@ -261,36 +261,38 @@ pub fn projectile(
             ));
         }
 
-        // Burst debris particles from the carve site. The renderer's
-        // ParticleSystem drives the simulation and sprite instances; a
-        // transient burst emitter fires once and self-retires (draining
-        // when its last particle dies) so emitters never accumulate.
-        let count = removed_colors.len().min(CARVE_DEBRIS_CAP) as u32;
-        if count > 0 {
+        // Burst debris particles from the carve site. voxel_debris spawns one
+        // particle per site with its exact voxel color; internally it strides to
+        // respect the system's carve_debris_cap budget.
+        if !removed_voxels.is_empty() {
             let carve_local = voxel_center_local(hv, pivot_vec);
             let carve_world = hit.ast_pos + hit.ast_orientation * carve_local;
-            let id = particle_sys.add_emitter(ParticleEmitterDef {
-                pos: carve_world.as_vec3().to_array(),
-                shape: EmitterShape::Sphere {
-                    radius: HIT_CARVE_RADIUS as f32,
+            let sites: Vec<([f32; 3], Rgb)> = removed_voxels
+                .iter()
+                .map(|&(local_pos, color)| {
+                    let w = hit.ast_pos
+                        + hit.ast_orientation * voxel_center_local(local_pos.as_uvec3(), pivot_vec);
+                    (w.as_vec3().to_array(), Rgb(color & 0x00ff_ffff))
+                })
+                .collect();
+            particle_sys.voxel_debris(
+                &sites,
+                carve_world.as_vec3().to_array(),
+                5.0..25.0,
+                &ParticleEmitterDef {
+                    lifetime: 2.0..4.0,
+                    velocity: VelocityDef {
+                        base: hit.ast_vel.as_vec3().to_array(),
+                        spread: 20.0,
+                        ..VelocityDef::default()
+                    },
+                    gravity: [0.0, 0.0, 0.0],
+                    scale: 1.0 / PARTICLE_MODEL_DIM,
+                    scale_end: Some(0.0),
+                    spin: -8.0..8.0,
+                    ..ParticleEmitterDef::new(particle_model.model_id)
                 },
-                spawn: SpawnMode::Burst(count),
-                lifetime: 2.0..4.0,
-                // Debris wears the average color of the voxels just carved
-                // (multiplied over the particle model's gray gradient).
-                tint: average_rgb(&removed_colors),
-                velocity: VelocityDef {
-                    base: hit.ast_vel.as_vec3().to_array(),
-                    spread: 40.0,
-                    ..VelocityDef::default()
-                },
-                gravity: [0.0, 0.0, 0.0],
-                scale: 1.0 / PARTICLE_MODEL_DIM,
-                scale_end: Some(0.0),
-                spin: -8.0..8.0,
-                ..ParticleEmitterDef::new(particle_model.model_id)
-            });
-            particle_sys.remove_emitter(id);
+            );
         }
 
         // Re-upload the carved model to the renderer.
@@ -329,9 +331,13 @@ pub fn projectile(
 }
 
 /// Carve a sphere of `radius` voxels centred on `center` in-place.
-/// Returns `(is_empty, remaining_count, removed_colors)` — the colors of the
-/// carved voxels feed the debris-burst tint.
-fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u32, Vec<u32>) {
+/// Returns `(is_empty, remaining_count, removed_voxels)` — local-space voxel
+/// positions and colors, used by the caller to spawn color-accurate debris.
+fn carve_sphere(
+    model: &mut SpriteModel,
+    center: IVec3,
+    radius: u32,
+) -> (bool, u32, Vec<(IVec3, u32)>) {
     let r = radius as i32;
     let dims_i = UVec3::from(model.dims).as_ivec3();
     let occ = model.occ_words_per_col as usize;
@@ -351,7 +357,7 @@ fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u
                     let z_bit = (c.z % 32) as u32;
                     if (model.occupancy[base + z_word] >> z_bit) & 1 == 1 {
                         let color_idx = voxel_color_index(model, col, base, z_word, z_bit);
-                        removed.push(model.colors[color_idx]);
+                        removed.push((c, model.colors[color_idx]));
                     }
                     model.set_voxel(c.x as u32, c.y as u32, c.z as u32, None);
                 }
@@ -360,23 +366,6 @@ fn carve_sphere(model: &mut SpriteModel, center: IVec3, radius: u32) -> (bool, u
     }
     let count = model.colors.len() as u32;
     (count == 0, count, removed)
-}
-
-/// Average the RGB channels of packed voxel colors, ignoring the high
-/// (KV6 visibility/flag) byte. Empty input averages to white — the
-/// emitter-tint no-op.
-fn average_rgb(colors: &[u32]) -> Rgb {
-    if colors.is_empty() {
-        return Rgb::WHITE;
-    }
-    let n = colors.len() as u32;
-    let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
-    for c in colors {
-        r += (c >> 16) & 0xff;
-        g += (c >> 8) & 0xff;
-        b += c & 0xff;
-    }
-    Rgb(((r / n) << 16) | ((g / n) << 8) | (b / n))
 }
 
 /// Return the subset of `minerals` whose voxel index lies within `radius` of `center`.
@@ -589,32 +578,17 @@ mod tests {
     fn carve_removes_voxels_in_sphere() {
         let mut model = make_5x5x5();
         // Radius 1 at (2,2,2): d²≤1 selects centre + 6 face neighbours = 7 voxels.
-        let (_, _, removed_colors) = carve_sphere(&mut model, IVec3::new(2, 2, 2), 1);
+        let (_, _, removed_voxels) = carve_sphere(&mut model, IVec3::new(2, 2, 2), 1);
         assert_eq!(
             model.colors.len(),
             118,
             "125 − 7 = 118 voxels should remain"
         );
-        assert_eq!(removed_colors.len(), 7, "one color per carved voxel");
+        assert_eq!(removed_voxels.len(), 7, "one color per carved voxel");
         assert!(
-            removed_colors.iter().all(|&c| c == 0xFF_FF_FF_FF),
+            removed_voxels.iter().all(|&(_, c)| c == 0xFF_FF_FF_FF),
             "sampled colors match the solid-white model"
         );
-    }
-
-    #[test]
-    fn average_rgb_masks_flag_byte_and_averages() {
-        use super::average_rgb;
-        use roxlap_render::Rgb;
-        // Empty input is the tint no-op.
-        assert_eq!(average_rgb(&[]), Rgb::WHITE);
-        // The high (KV6 visibility) byte is ignored; channels average.
-        assert_eq!(
-            average_rgb(&[0x80_FF_00_00, 0x00_00_00_00]),
-            Rgb(0x007F_0000)
-        );
-        // A uniform input averages to itself.
-        assert_eq!(average_rgb(&[0x80_10_20_30; 4]), Rgb(0x0010_2030));
     }
 
     #[test]
