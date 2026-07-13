@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use glam::{DVec3, IVec3, UVec3};
 use legion::Entity;
@@ -10,25 +10,23 @@ use crate::{
     sprites::build_asteroid,
 };
 
-/// Set of chunk coordinates (in chunk-space) that have already been visited and populated.
+/// Chunk coordinates (in chunk-space) that have been evaluated — populated or
+/// known empty. Pruned to the unload radius on every presence update, so it
+/// stays bounded and departed chunks regenerate deterministically on return.
 pub struct VisitedChunks(pub HashSet<IVec3>);
 
-/// Set of asteroid entity IDs currently loaded within the presence area.
-pub struct LoadedAsteroids(pub HashSet<Entity>);
+/// Loaded asteroid entities mapped to their *spawn* chunk. Unloading keys on
+/// the spawn chunk rather than the asteroid's current position (impulses push
+/// asteroids across chunk borders), so despawn always releases exactly the
+/// chunk that spawned the asteroid.
+pub struct LoadedAsteroids(pub HashMap<Entity, IVec3>);
 
 /// Seed for all procedural world generation (chunk density noise, asteroid properties).
 pub struct WorldSeed(pub u64);
 
-/// Tombstoned sprite models accumulated since the last `compact_sprite_models` call.
-/// Compact fires once enough tombstones pile up AND the ship is practically parked
-/// (queue drained, speed near zero) — compacting mid-flight shrinks the GPU buffers
-/// tight and the next chunk batch immediately forces a grow+repack (a second full
-/// rebuild). A hard cap forces a compact anyway if a long flight never pauses.
-pub struct PendingCompact(pub u32);
-
 /// FIFO queue of chunk coordinates waiting to be generated, with an O(1) membership set.
-/// Both structures are kept in sync automatically via the `enqueue`/`pop_front`/`drain_front`
-/// methods, eliminating the manual invariant previously split across two separate resources.
+/// Both structures are kept in sync automatically via the `enqueue`/`pop_front` methods,
+/// eliminating the manual invariant previously split across two separate resources.
 pub struct ChunkQueue {
     queue: VecDeque<IVec3>,
     queued: HashSet<IVec3>,
@@ -55,25 +53,8 @@ impl ChunkQueue {
         Some(chunk)
     }
 
-    pub fn front(&self) -> Option<&IVec3> {
-        self.queue.front()
-    }
-
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.queue.len()
-    }
-
-    /// Drain the first `n` entries and remove them from the queued set.
-    pub fn drain_front(&mut self, n: usize) -> Vec<IVec3> {
-        let chunks: Vec<IVec3> = self.queue.drain(..n).collect();
-        for &c in &chunks {
-            self.queued.remove(&c);
-        }
-        chunks
     }
 
     pub fn clear(&mut self) {
@@ -140,38 +121,20 @@ const CRYSTAL_SPAWN_CHANCE: f32 = 0.01;
 /// Worst-case gap between adjacent asteroids = 64 − 2×24 = 16 = 2×half_extent (touching, not overlapping).
 const SPAWN_SAFE_RANGE: f64 = 24.0;
 
-/// Everything the sequential upload phase needs to turn a computed chunk
-/// into a live asteroid (renderer registration + ECS spawn).
+/// Everything needed to turn a computed chunk into a live asteroid
+/// (renderer registration + ECS spawn).
 pub(crate) struct SpawnData {
-    pub chunk: IVec3,
     pub model: SpriteModel,
     pub minerals: Vec<UVec3>,
     pub spawn_pos: DVec3,
     pub angular_vel: DVec3,
 }
 
-pub(crate) enum ChunkComputeResult {
-    NoSpawn { chunk: IVec3 },
-    Spawn(SpawnData),
-}
-
-/// Computed asteroid spawns waiting for their main-thread GPU upload.
-/// Chunk *compute* is parallel and cheap, but each spawn's kv6 conversion +
-/// renderer registration is sequential main-thread work — a dense shell can
-/// put 50+ of them in one frame, which reads as a hitch. Uploads are
-/// throttled per frame and the surplus carries over here. Chunks in this
-/// buffer are already in `VisitedChunks` (so they can't be re-enqueued);
-/// dropping a stale entry must un-visit its chunk.
-pub(crate) struct PendingSpawns(pub VecDeque<SpawnData>);
-
-/// Pure-CPU chunk evaluation: density noise + optional asteroid model building.
-/// No GPU or ECS access — safe to call from rayon threads.
-/// `perlin` is constructed once per batch by the caller and shared across threads.
-pub(crate) fn compute_chunk(
-    chunk: IVec3,
-    world_seed: u64,
-    perlin: &PerlinNoise3D,
-) -> ChunkComputeResult {
+/// Density gate: does this chunk contain an asteroid? Cheap (one fBm sample
+/// plus a hash), so the caller can scan large stretches of empty space
+/// sequentially. `perlin` must be built from `world_seed`; the caller
+/// constructs it once and shares it across chunks.
+pub(crate) fn chunk_has_asteroid(chunk: IVec3, world_seed: u64, perlin: &PerlinNoise3D) -> bool {
     let raw = perlin.fbm(
         chunk.x as f32,
         chunk.y as f32,
@@ -183,10 +146,13 @@ pub(crate) fn compute_chunk(
     let density = density.clamp(0.0, 1.0);
     let density = density * density * (3.0 - 2.0 * density);
 
-    if chunk_spawn_hash(world_seed, chunk) >= density {
-        return ChunkComputeResult::NoSpawn { chunk };
-    }
+    chunk_spawn_hash(world_seed, chunk) < density
+}
 
+/// Build the asteroid for a chunk that passed `chunk_has_asteroid`. The
+/// expensive part of generation (a full voxel-model Perlin scan) — pure CPU,
+/// no GPU or ECS access, safe to call from rayon threads.
+pub(crate) fn compute_spawn(chunk: IVec3, world_seed: u64) -> SpawnData {
     let h = chunk_hash_base(world_seed, chunk);
     let chunk_centre = (chunk.as_dvec3() + DVec3::splat(0.5)) * CHUNK_SIZE as f64;
     let spawn_pos = chunk_centre + chunk_spawn_offset(h);
@@ -203,13 +169,12 @@ pub(crate) fn compute_chunk(
     );
     let angular_vel = chunk_spawn_angular_vel(h);
 
-    ChunkComputeResult::Spawn(SpawnData {
-        chunk,
+    SpawnData {
         model,
         minerals,
         spawn_pos,
         angular_vel,
-    })
+    }
 }
 
 /// Combine world seed and chunk coordinates into one u64 base hash.
@@ -245,6 +210,46 @@ fn chunk_spawn_angular_vel(h: u64) -> DVec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[ignore]
+    fn tuning_probe() {
+        // One-off measurement for MAX_SPAWNS_PER_FRAME tuning.
+        let seed = 42u64;
+        let perlin = PerlinNoise3D::new(seed);
+        let radius = 8;
+
+        let t0 = std::time::Instant::now();
+        let spawning: Vec<IVec3> = chunks_in_sphere(IVec3::ZERO, radius)
+            .filter(|&c| chunk_has_asteroid(c, seed, &perlin))
+            .collect();
+        let total = chunks_in_sphere(IVec3::ZERO, radius).count();
+        let gate_time = t0.elapsed();
+        println!(
+            "sphere r={radius}: {total} chunks, {} spawns, density gate {:?} total",
+            spawning.len(),
+            gate_time
+        );
+
+        let sample: Vec<IVec3> = spawning.iter().copied().take(64).collect();
+        let t1 = std::time::Instant::now();
+        let models: Vec<_> = sample.iter().map(|&c| compute_spawn(c, seed)).collect();
+        println!(
+            "compute_spawn: {:?} per asteroid",
+            t1.elapsed() / sample.len() as u32
+        );
+
+        let t2 = std::time::Instant::now();
+        let kv6s: Vec<_> = models
+            .iter()
+            .map(|d| crate::systems::sprite::sprite_model_to_kv6(&d.model))
+            .collect();
+        println!(
+            "kv6 conversion: {:?} per asteroid ({} models)",
+            t2.elapsed() / kv6s.len() as u32,
+            kv6s.len()
+        );
+    }
     use super::{chunk_hash_base, chunk_spawn_angular_vel, chunk_spawn_hash, chunk_spawn_offset};
 
     #[test]

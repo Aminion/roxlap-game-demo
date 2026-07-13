@@ -91,7 +91,7 @@ pub fn projectile(
         initial_voxel_count: u32,
     }
     let mut asteroids: Vec<AstState> = Vec::with_capacity(loaded.0.len());
-    for &entity in &loaded.0 {
+    for &entity in loaded.0.keys() {
         let entry = world
             .entry_ref(entity)
             .expect("loaded asteroid entity missing");

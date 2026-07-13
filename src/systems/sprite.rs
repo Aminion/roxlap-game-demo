@@ -86,14 +86,16 @@ pub fn spawn_shared_instance(
 }
 
 /// Register a sprite model with both the CPU registry and the renderer.
+/// `kv6` must be the surface conversion of `model` (`sprite_model_to_kv6`),
+/// taken precomputed so callers can run the conversion off the main thread.
 pub fn spawn_sprite(
     renderer: &mut SceneRenderer,
     registry: &mut SpriteModelRegistry,
     model: SpriteModel,
+    kv6: &Kv6,
 ) -> Sprite {
     let chain_id = registry.add(model);
-    let kv6 = sprite_model_to_kv6(registry.model(chain_id));
-    let model_id = renderer.add_sprite_model(&kv6);
+    let model_id = renderer.add_sprite_model(kv6);
     let instance_id = renderer
         .add_sprite_instance_posed(model_id, DynSpriteTransform::default())
         .expect("freshly registered sprite model is live");

@@ -15,8 +15,8 @@ raw-window-handle = "0.6.2"
 egui = "0.34.3"
 glam = "0.33.2"
 crossbeam = "0.8.4"
-rayon = "1.12.0"
 rand = "0.10.2"
+rayon = "1.12.0"
 log = "0.4.33"
 
 [dependencies.sdl2]

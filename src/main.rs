@@ -8,7 +8,7 @@ mod systems;
 mod test_utils;
 mod world;
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -32,9 +32,7 @@ use sdl2::{
 
 use crate::components::energy::{Energy, ENERGY_INITIAL};
 use crate::generation::{
-    chunks::{
-        ChunkQueue, LoadedAsteroids, PendingCompact, PendingSpawns, VisitedChunks, WorldSeed,
-    },
+    chunks::{ChunkQueue, LoadedAsteroids, VisitedChunks, WorldSeed},
     generate_star_sky,
 };
 use crate::input::PlayerInput;
@@ -220,11 +218,9 @@ fn initial_resources(handle: Arc<SdlWindowHandle>) -> Resources {
     resources.insert(ParticleSystem::new(WORLD_SEED));
     resources.insert(miner_model);
     resources.insert(VisitedChunks(HashSet::new()));
-    resources.insert(LoadedAsteroids(HashSet::new()));
+    resources.insert(LoadedAsteroids(HashMap::new()));
     resources.insert(WorldSeed(WORLD_SEED));
-    resources.insert(PendingCompact(0));
     resources.insert(ChunkQueue::new());
-    resources.insert(PendingSpawns(VecDeque::new()));
     resources.insert(Energy::new(ENERGY_INITIAL));
     resources.insert(RetrievalBeam(None));
     resources.insert(GameState::TitleScreen);
@@ -319,9 +315,7 @@ fn restart_world(world: &mut World, resources: &mut Resources) {
     resources.get_mut::<Energy>().unwrap().current = ENERGY_INITIAL;
     resources.get_mut::<VisitedChunks>().unwrap().0.clear();
     resources.get_mut::<LoadedAsteroids>().unwrap().0.clear();
-    resources.get_mut::<PendingCompact>().unwrap().0 = 0;
     resources.get_mut::<ChunkQueue>().unwrap().clear();
-    resources.get_mut::<PendingSpawns>().unwrap().0.clear();
     *resources.get_mut::<AutopilotTarget>().unwrap() = AutopilotTarget(miner_initial_forward());
     resources.get_mut::<RetrievalBeam>().unwrap().0 = None;
     *resources.get_mut::<CameraMode>().unwrap() = CameraMode::FirstPerson;
@@ -338,7 +332,6 @@ fn main() {
         display: window.display_handle().unwrap().as_raw(),
     });
 
-    systems::presence_position::init_chunk_parallelism();
     let mut schedule = build_schedule();
     let mut world = World::default();
     let _window = window;
