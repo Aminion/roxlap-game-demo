@@ -1504,18 +1504,18 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "roxlap-cavegen"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6513b774763ca79e0fb1968f6b3754949ca753b98a163880c1d51f1d04bffdc6"
+checksum = "51682467b60629230edc7cdc57c9c14ade0414aa9c51da124c710f81c13088d4"
 dependencies = [
  "roxlap-formats",
 ]
 
 [[package]]
 name = "roxlap-core"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b996997acb25dcae2a9cc9bef2e0544e09b70131413206828d92230db7c18af3"
+checksum = "370a87edd279c7b148f09dda5a9acd9bc1959b49774b468c139a85e34401a58c"
 dependencies = [
  "rayon",
  "roxlap-formats",
@@ -1523,9 +1523,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-formats"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8948328b5b3dacce48426e63a509d7ccffedf478f72ad9bd77b7f0f7ac15249"
+checksum = "fe5e4db3ddf1a97e5a0537160c37b9356bde6f4279d4d4840adeb4a237188b46"
 dependencies = [
  "miniz_oxide",
 ]
@@ -1554,9 +1554,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-gpu"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0bc997acf8be2e22a167154982a6d55581eab75c4df6ce174eafe360dd917b0a"
+checksum = "dec4dae118447c6f7dbb40c85f244161d6681444bf3fbdd70c44bf54540301d9"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1571,9 +1571,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-render"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0c7fd4821d09fba19ea6ca9a5b5dfddef84acc9262e0df45a8b78c9fd314997"
+checksum = "ff5a36a0c90f2a464dbc63c80bfeccffc985d24a75bd2b6159b7e567d4b20b0d"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1592,9 +1592,9 @@ dependencies = [
 
 [[package]]
 name = "roxlap-scene"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d36e73f461c960c23acf2f19eb38252a4073b2a700d54579b7ed487196a54b66"
+checksum = "c4a11dd1d442773c951f7f9d78dfbaebe2cc41e1e230bf648f6a5f622d480702"
 dependencies = [
  "bincode",
  "crossbeam-channel",
